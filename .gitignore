@@ -1,0 +1,43 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# environment
+.env
+.env.local
+.env.*.local
+
+# test output
+coverage/
+.nyc_output/
+
+# editors
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.cursor/*
+*.swp
+
+# os
+.DS_Store
+Thumbs.db
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# vercel
+.vercel
+
+# typescript (generated; recreate on install/build)
+demos/next-lab/next-env.d.ts

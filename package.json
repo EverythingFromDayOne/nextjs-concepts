@@ -1,0 +1,25 @@
+{
+  "name": "nextjs-concepts",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Concept articles and symptom-first recipes for Next.js — targeting Cache Components and the stale-answer tax.",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "verify:code-blocks": "node scripts/verify-code-blocks.mjs",
+    "verify:links": "node scripts/verify-links.mjs",
+    "verify:legacy": "node scripts/verify-legacy-markers.mjs",
+    "verify": "pnpm verify:code-blocks && pnpm verify:links && pnpm verify:legacy",
+    "build:demo": "pnpm --filter next-lab build",
+    "test:demo": "pnpm --filter next-lab test"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "sharp",
+      "unrs-resolver"
+    ]
+  }
+}

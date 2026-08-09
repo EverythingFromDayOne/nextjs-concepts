@@ -1,0 +1,39 @@
+name: verify
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: verify:code-blocks
+        run: pnpm verify:code-blocks
+
+      - name: verify:links
+        run: pnpm verify:links
+
+      - name: verify:legacy
+        run: pnpm verify:legacy
+
+      - name: demo build
+        run: pnpm --filter next-lab build
+
+      - name: demo test
+        run: pnpm --filter next-lab test

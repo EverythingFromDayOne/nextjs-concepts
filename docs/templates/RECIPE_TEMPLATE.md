@@ -1,0 +1,82 @@
+---
+recipe_id: "{RECIPE_ID}"
+primary_concept: "{PRIMARY_CONCEPT}"
+difficulty: foundational
+next_baseline: "16.3.0"
+---
+
+<!--
+Symptom-first titles only.
+  good: caching/stale-dashboard-after-mutation
+  bad:  caching/updateTag
+difficulty: foundational | intermediate | advanced
+Code blocks: extract verbatim from demos/next-lab/ only.
+-->
+
+# {SYMPTOM_TITLE}
+
+## What you'll build
+
+{PLACEHOLDER}
+
+## The scenario
+
+{PLACEHOLDER — concrete failure mode, with numbers}
+
+## Why it escaped QA
+
+{PLACEHOLDER}
+
+## Walkthrough
+
+### Stage 1 — {PLACEHOLDER}
+
+{PLACEHOLDER}
+
+### Stage 2 — {PLACEHOLDER}
+
+{PLACEHOLDER}
+
+### Stage 3 — {PLACEHOLDER}
+
+{PLACEHOLDER}
+
+## Variations
+
+{PLACEHOLDER}
+
+## Trade-offs and pitfalls
+
+1. {PLACEHOLDER}
+2. {PLACEHOLDER}
+3. {PLACEHOLDER}
+4. {PLACEHOLDER}
+5. {PLACEHOLDER}
+6. {PLACEHOLDER}
+7. {PLACEHOLDER}
+8. {PLACEHOLDER}
+9. {PLACEHOLDER}
+10. {PLACEHOLDER}
+<!-- aim for 10–15, including a real "when NOT to use this" -->
+
+### When NOT to use this
+
+{PLACEHOLDER}
+
+## Verify the loop
+
+{PLACEHOLDER — how to confirm the fix sticks}
+
+## See also
+
+- {PLACEHOLDER — link 1}
+- {PLACEHOLDER — link 2}
+- {PLACEHOLDER — link 3}
+
+## References
+
+- {PLACEHOLDER — official docs only}
+
+## Demo source
+
+`demos/next-lab/{PLACEHOLDER}`

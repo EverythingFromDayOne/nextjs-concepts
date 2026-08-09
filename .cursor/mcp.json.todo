@@ -1,0 +1,4 @@
+{
+  "_comment": "TODO: register the Next.js DevTools MCP server once the mechanism is confirmed for the locked Next.js 16.3.0 baseline. Do not invent a server URL or command that has not been verified against demos/next-lab/node_modules/next or official docs. Rename this file to mcp.json after verification.",
+  "mcpServers": {}
+}
