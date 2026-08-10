@@ -11,7 +11,7 @@
     "verify:code-blocks": "node scripts/verify-code-blocks.mjs --strict",
     "verify:links": "node scripts/verify-links.mjs",
     "verify:legacy": "node scripts/verify-legacy-markers.mjs",
-    "verify:templates": "python scripts/build-article.py --check --all",
+    "verify:templates": "python3 scripts/build-article.py --check --all",
     "verify": "pnpm verify:templates && pnpm verify:code-blocks && pnpm verify:links && pnpm verify:legacy",
     "build:demo": "pnpm --filter next-lab build",
     "test:demo": "pnpm --filter next-lab test"

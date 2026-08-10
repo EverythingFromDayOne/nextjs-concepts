@@ -28,7 +28,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: build-article --check --all
-        run: python scripts/build-article.py --check --all
+        run: python3 scripts/build-article.py --check --all
 
       - name: verify:code-blocks --strict
         run: node scripts/verify-code-blocks.mjs --strict
