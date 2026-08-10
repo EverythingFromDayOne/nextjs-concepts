@@ -550,7 +550,7 @@ async function getDashboard() {
 - [`caching/cache-components-model`](../caching/cache-components-model.md) — why the default inverted, and the four-way decision in full
 - [`caching/use-cache-directive`](../caching/use-cache-directive.md) — what actually goes into a compiler-derived key
 - [`data/runtime-data-and-cached-scopes`](../data/runtime-data-and-cached-scopes.md) — the read-outside-pass-in rule and its failure mode
-- [`reactjs-concepts` → `rendering/how-react-renders`](../../../reactjs-concepts/docs/concepts/rendering/how-react-renders.md) — render and commit, if the React side is unfamiliar
+- [`reactjs-concepts` → `rendering/how-react-renders`](../../../../reactjs-concepts/docs/concepts/rendering/how-react-renders.md) — render and commit, if the React side is unfamiliar
 
 ---
 

@@ -17,7 +17,7 @@ status: draft
 
 > **Lead with this.** `'use client'` does not mean "runs on the client." It means **"this module is an entry point into the client module graph."** Two consequences follow, and between them they explain every rule in this article: the directive spreads through `import`, never through JSX children; and Client Components still render on the server, then hydrate. If you have been reading the directive as "make this interactive," swap in "add this module and everything it imports to the browser bundle" and most of the confusion evaporates.
 
-This is the article [`reactjs-concepts`](../../../reactjs-concepts/docs/roadmap.md) deferred when it fenced RSC as "coverage happens via Next.js App Router, since that's where RSC is actually usable in production." This is that coverage.
+This is the article [`reactjs-concepts`](../../../../reactjs-concepts/docs/roadmap.md) deferred when it fenced RSC as "coverage happens via Next.js App Router, since that's where RSC is actually usable in production." This is that coverage.
 
 ---
 
@@ -485,7 +485,7 @@ Either the handler belongs inside the client component, or it is a Server Functi
 - [`performance/the-client-bundle`](../performance/the-client-bundle.md) — measuring the graph you just traced
 - [`mutations/server-functions`](../mutations/server-functions.md) — the other side of the boundary
 - [`routing/navigation-and-ui-state`](../routing/navigation-and-ui-state.md) — `<Activity>` and the state that no longer resets
-- [`reactjs-concepts` → `state/context`](../../../reactjs-concepts/docs/concepts/state/context.md) — what context is and isn't for, before you reach for a provider
+- [`reactjs-concepts` → `state/context`](../../../../reactjs-concepts/docs/concepts/state/context.md) — what context is and isn't for, before you reach for a provider
 
 ---
 

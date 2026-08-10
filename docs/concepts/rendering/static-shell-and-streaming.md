@@ -457,7 +457,7 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 8, 9, 20.
 - [`caching/composition-and-cache-boundaries`](../caching/composition-and-cache-boundaries.md) — the same placement question from the caching side
 - [`routing/instant-navigation-and-prefetching`](../routing/instant-navigation-and-prefetching.md) — what the shell is used for once it exists
 - [`caching/cache-lifetimes`](../caching/cache-lifetimes.md) — the thresholds that keep content out of the shell and the App Shell
-- [`reactjs-concepts` → `rendering/suspense`](../../../reactjs-concepts/docs/concepts/rendering/suspense.md) — Suspense as a React primitive, without the build-time job
+- [`reactjs-concepts` → `rendering/suspense`](../../../../reactjs-concepts/docs/concepts/rendering/suspense.md) — Suspense as a React primitive, without the build-time job
 
 ---
 
