@@ -3,20 +3,30 @@
  * Verify relative markdown links and anchors under docs/.
  *
  * Policy (do not unify with verify-legacy-markers):
- * - Sibling cross-repo links (`../../*-concepts/…`) warn rather than fail when
- *   the sibling checkout is missing (roadmap §7.5).
- * - Draft articles may forward-link to not-yet-written corpus paths; those
- *   missing targets warn rather than fail. Promoting past draft requires the
- *   targets to exist.
+ * - Cross-repo links — targets that resolve outside this repository's root —
+ *   warn rather than fail when the sibling checkout is missing (roadmap §7.5).
+ * - Anything else — targets that resolve inside this repository's root — are
+ *   hard failures, split into two reported cases: missing file, and missing
+ *   anchor (file exists, heading slug doesn't).
  *
- * Contrast: verify-legacy-markers hard-fails for every status (including draft).
- * Softening belongs here because Wave 1 → Wave 5 forward links are a genuine
- * sequencing problem; softening the legacy gate is not — that was reverted.
+ * Classification is purely by where the resolved *target* lands on disk,
+ * never by matching a repo-name substring anywhere (checkout path, frontmatter
+ * status, link text, etc.) — a string match is not a reliable signal for
+ * where a link points. CI's nested checkout path (`…/nextjs-concepts/
+ * nextjs-concepts/…`) used to make every same-repo link look cross-repo,
+ * because the checkout directory itself matched the sibling-repo-name
+ * pattern the old code searched for — the gate warned on everything and
+ * never actually failed on CI.
+ *
+ * There is no draft exception: a forward link to a not-yet-written corpus
+ * path is indistinguishable on disk from a typo, so both are hard failures
+ * here. (Draft status still governs verify-code-blocks separately.)
  *
  * Usage: node scripts/verify-links.mjs [root]
  */
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const FENCE = /^\s*(```|~~~)/;
 const LINK = /\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
@@ -30,7 +40,19 @@ const SKIP_DIRS = new Set([
   "coverage",
   ".next",
 ]);
-const SIBLING_REPO = /(?:^|[/\\])(?:angular|reactjs|nestjs|dsa|nextjs)-concepts(?:[/\\]|$)/;
+
+// This repo's root, derived from this script's own location on disk — never
+// from a checkout-path string. `../../<sibling-repo>/…` links resolve outside
+// this directory regardless of what the checkout happens to be named.
+const REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  ".."
+);
+
+function isOutsideRepo(resolved) {
+  const rel = path.relative(REPO_ROOT, resolved);
+  return rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel);
+}
 
 function stripFences(text) {
   const out = [];
@@ -61,14 +83,6 @@ function slugify(heading) {
   text = text.replace(/[`*_~]/g, "");
   text = text.replace(/[^\w\- ]/g, "");
   return text.replace(/ /g, "-");
-}
-
-function frontmatterStatus(text) {
-  const cleaned = text.replace(/^\uFEFF/, "");
-  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(cleaned);
-  if (!m) return undefined;
-  const s = /^status:\s*(\S+)/m.exec(m[1]);
-  return s?.[1];
 }
 
 function walkMarkdown(root) {
@@ -116,8 +130,6 @@ function main() {
 
   for (const filePath of files) {
     const raw = fs.readFileSync(filePath, "utf8");
-    const status = frontmatterStatus(raw);
-    const draftSoft = status === "draft";
     const body = stripFences(raw);
     const lines = body.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
@@ -137,14 +149,17 @@ function main() {
         let resolved = filePath;
         if (filePart) {
           resolved = path.resolve(path.dirname(filePath), filePart);
+          const crossRepo = isOutsideRepo(resolved);
           if (!fs.existsSync(resolved)) {
             const msg = `${rel}:${lineno} — missing file -> ${target}`;
-            const soft =
-              draftSoft || SIBLING_REPO.test(resolved) || SIBLING_REPO.test(target);
-            if (soft) warnings.push(msg);
+            if (crossRepo) warnings.push(msg);
             else failures.push(msg);
             continue;
           }
+          // A same-repo target that resolves to a real file is a hard case
+          // from here on; a cross-repo target only ever warns (the sibling
+          // checkout, and thus its anchors, may legitimately be absent).
+          if (crossRepo) continue;
         }
 
         if (!anchor || path.extname(resolved) !== ".md") continue;
@@ -152,9 +167,9 @@ function main() {
           anchorCache.set(resolved, anchorsOf(resolved));
         }
         if (!anchorCache.get(resolved).has(anchor)) {
-          const msg = `${rel}:${lineno} — missing anchor -> ${target}`;
-          if (draftSoft) warnings.push(msg);
-          else failures.push(msg);
+          const anchorFile = path.relative(root, resolved) || rel;
+          const msg = `${rel}:${lineno} — missing anchor "#${anchor}" in ${anchorFile}`;
+          failures.push(msg);
         }
       }
     }
