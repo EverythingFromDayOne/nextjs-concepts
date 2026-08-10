@@ -20,11 +20,18 @@ jobs:
           node-version: "22"
           cache: pnpm
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: verify:code-blocks
-        run: pnpm verify:code-blocks
+      - name: build-article --check --all
+        run: python scripts/build-article.py --check --all
+
+      - name: verify:code-blocks --strict
+        run: node scripts/verify-code-blocks.mjs --strict
 
       - name: verify:links
         run: pnpm verify:links

@@ -1,0 +1,14 @@
+# produced: 2026-08-10; next@16.3.0; command: compare streaming.html vs streaming-coarse.html <main> contents
+fine shell has Weekly report header: true
+fine shell has 2026-W32: true
+fine shell has Revenue skeleton: true
+fine shell has Traffic skeleton: true
+fine shell has Errors skeleton: true
+fine shell has aria-busy: true
+coarse shell has Weekly report header (summary): false
+coarse shell has 2026-W32: false
+coarse shell has skeleton title Weekly report: true
+coarse shell has Revenue: false
+coarse shell has Traffic: false
+coarse shell has Errors: false
+coarse shell has aria-busy: true

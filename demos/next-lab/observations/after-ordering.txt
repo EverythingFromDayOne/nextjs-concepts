@@ -1,0 +1,11 @@
+# produced: 2026-08-10; next@16.3.0; command: next start --port 3016; curl -w time_total http://localhost:3016/after-demo
+--- curl ---
+time_total_s: 0.243474
+(html body omitted; 200 OK)
+--- server log lines of interest ---
+[render] /after-demo responded at 1786346353584
+[audit] /after-demo viewed, queued at 1786346353584, written at 1786346354020
+--- claim ---
+visitor time_total << 0.300s: true
+audit delay (written - queued): 436ms
+visitor time_total should be << 300ms audit delay if after() is post-response

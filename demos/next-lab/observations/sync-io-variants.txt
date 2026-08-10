@@ -1,0 +1,56 @@
+# produced: 2026-08-10; next@16.3.0; command: unique scratch routes per primitive; pnpm build each; remove scratch
+### new Date()
+route: /scratch-s6-date
+build exit: 1
+caught: true
+error names unstable value: new Date()
+Error: Route "/scratch-s6-date": Next.js encountered the unstable value `new Date()` while prerendering.
+This value can change between renders, so it must be either prerendered or computed later.
+Ways to fix this:
+  - [dynamic] Render at request time by adding a dynamic data access (e.g. `await connection()`) before this call
+  - [cache] Prerender and cache the value with `"use cache"`
+  - [client] Render the value on the client with `"use client"`
+  - [measure] If the value is for telemetry, use a timing API such as `performance.now()`
+Learn more: https://nextjs.org/docs/messages/blocking-prerender-current-time
+---
+### Date.now()
+route: /scratch-s6-now
+build exit: 1
+caught: true
+error names unstable value: Date.now()
+Error: Route "/scratch-s6-now": Next.js encountered the unstable value `Date.now()` while prerendering.
+This value can change between renders, so it must be either prerendered or computed later.
+Ways to fix this:
+  - [dynamic] Render at request time by adding a dynamic data access (e.g. `await connection()`) before this call
+  - [cache] Prerender and cache the value with `"use cache"`
+  - [client] Render the value on the client with `"use client"`
+  - [measure] If the value is for telemetry, use a timing API such as `performance.now()`
+Learn more: https://nextjs.org/docs/messages/blocking-prerender-current-time
+---
+### Math.random()
+route: /scratch-s6-random
+build exit: 1
+caught: true
+error names unstable value: Math.random()
+Error: Route "/scratch-s6-random": Next.js encountered the unstable value `Math.random()` while prerendering.
+This value can change between renders, so it must be either prerendered or computed later.
+Ways to fix this:
+  - [dynamic] Render at request time by adding a dynamic data access (e.g. `await connection()`) before this call
+  - [cache] Prerender and cache the value with `"use cache"`
+  - [client] Render the value on the client with `"use client"`
+Learn more: https://nextjs.org/docs/messages/blocking-prerender-random
+---
+### crypto.randomUUID()
+route: /scratch-s6-uuid
+build exit: 1
+caught: true
+error names unstable value: crypto.randomUUID()
+Error: Route "/scratch-s6-uuid": Next.js encountered the unstable value `crypto.randomUUID()` while prerendering.
+This value can change between renders, so it must be either prerendered or computed later.
+Ways to fix this:
+  - [dynamic] Render at request time by adding a dynamic data access (e.g. `await connection()`) before this call
+  - [cache] Prerender and cache the value with `"use cache"`
+  - [client] Render the value on the client with `"use client"`
+Learn more: https://nextjs.org/docs/messages/blocking-prerender-crypto
+---
+# summary: all four primitives caught; none silently baked into the shell

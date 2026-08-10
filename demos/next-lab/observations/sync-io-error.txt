@@ -1,0 +1,8 @@
+﻿# produced: 2026-08-10; next@16.3.0; command: comment out await connection() in app/products/[slug]/price-as-of.tsx then pnpm build
+Error: Route "/products/[slug]": Next.js encountered the unstable value `new Date()` while prerendering.
+This value can change between renders, so it must be either prerendered or computed later.
+Ways to fix this:
+  - [dynamic] Render at request time by adding a dynamic data access (e.g. `await connection()`) before this call
+Learn more: https://nextjs.org/docs/messages/blocking-prerender-current-time
+Error occurred prerendering page "/products/aeron-chair". Read more: https://nextjs.org/docs/messages/prerender-error
+Export encountered an error on /products/[slug]/page: /products/aeron-chair, exiting the build.

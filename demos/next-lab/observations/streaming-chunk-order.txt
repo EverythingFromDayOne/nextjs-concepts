@@ -1,0 +1,9 @@
+# produced: 2026-08-10; next@16.3.0; command: curl -N --raw -w timings http://localhost:3015/streaming
+markers: Summary week in initial shell; Revenue/Traffic/Errors content present by end of body
+0.079875 first byte
+1.616546 total
+# note: TTFB is the shell (summary + three skeletons). total ≈ 1.5s errors latency + overhead.
+# chunk markers in the raw body (order of appearance):
+#   shell: <h1>Weekly report — 2026-W32</h1> + Revenue/Traffic/Errors aria-busy skeletons
+#   later: panels via $RC("B:n","S:n") — Revenue, Traffic, Errors
+# Windows curl -N still buffers; use the TTFB/total gap plus $RC slot order as the streaming evidence.

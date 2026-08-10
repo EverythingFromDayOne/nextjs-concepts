@@ -1,0 +1,8 @@
+# produced: 2026-08-10; next@16.3.0; command: next start; curl with Cookie uid=... against /leak-b and /leak-c; grep data-uid
+# note: request order and warm cache matter for vector B; this capture hit bob first
+# leak-b — module-level lastSeenUid
+curl -H "Cookie: uid=user-alice" /leak-b  ->  data-uid="user-bob"
+curl -H "Cookie: uid=user-bob"   /leak-b  ->  data-uid="user-bob"
+# leak-c — coarse key 'signed-in'
+curl -H "Cookie: uid=user-alice" /leak-c  ->  data-uid="user-alice"
+curl -H "Cookie: uid=user-bob"   /leak-c  ->  data-uid="user-alice"

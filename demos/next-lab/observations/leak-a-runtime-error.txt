@@ -1,0 +1,4 @@
+# produced: 2026-08-10; next@16.3.0; command: next start; curl -H "Cookie: uid=user-alice" /leak-a
+HTTP 200 (error UI in body)
+Route /leak-a used cookies() inside "use cache". Accessing Dynamic data sources inside a cache scope is not supported. This is a bug in your application.
+digest: 3264027773@E831

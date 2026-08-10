@@ -1,0 +1,12 @@
+# produced: 2026-08-10; next@16.3.0; command: scratch-s6-cached-date getStamped() with new Date() inside 'use cache'; build; two curls 2.5s apart; remove scratch
+builds: true
+build exit: 0
+Route (app)                    Revalidate  Expire
+├ ○ /scratch-s6-cached-date            1m      1h
+○  (Static)             prerendered as static content
+---
+runs: true
+request1 at: 2026-08-10T07:18:51.289Z (len=7222)
+request2 at (2.5s later): 2026-08-10T07:18:51.289Z (len=7222)
+same timestamp (frozen at entry creation): true
+snippet1: <main><p data-at="2026-08-10T07:18:51.289Z">2026-08-10T07:18:51.289Z</p><p>2026-W32</p></main>

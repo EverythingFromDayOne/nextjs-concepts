@@ -1,0 +1,8 @@
+# produced: 2026-08-10; next@16.3.0; command: pnpm build (filter next-lab); filter Route table for streaming rows
+Route (app)                    Revalidate  Expire
+├ ◐ /streaming                         1h      1d
+└ ◐ /streaming-coarse                  1h      1d
+○  (Static)             prerendered as static content
+◐  (Partial Prerender)  prerendered as static HTML with dynamic server-streamed content
+ƒ  (Dynamic)            server-rendered on demand
+# note: both routes annotated ◐ despite coarse having only a placeholder shell

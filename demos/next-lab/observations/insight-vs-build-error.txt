@@ -1,0 +1,30 @@
+﻿# produced: 2026-08-10; next@16.3.0; command: scratch route app/scratch-s6-bare-connection with bare await connection() at page root (no Suspense, no instant=false); next dev --port 3020 + curl; then next build; remove scratch
+
+=== DEV (next dev) ===
+HTTP status line: HTTP/1.1 200 OK
+response body length: 11706
+diagnostic present in HTML body: false
+dev-log label: the line starts with "Error:" — not "Insight", not "Warning"
+dev-log lines of interest:
+ GET /scratch-s6-bare-connection 200 in 10.0s (next.js: 9.6s, application-code: 372ms)
+Error: Route "/scratch-s6-bare-connection": Next.js encountered uncached data during prerendering.
+Learn more: https://nextjs.org/docs/messages/blocking-prerender-dynamic
+    at Page (app\scratch-s6-bare-connection\page.tsx:4:19)
+
+=== BUILD (next build) ===
+build exit: 1
+failure output:
+Error: Route "/scratch-s6-bare-connection": Next.js encountered uncached or runtime data during prerendering.
+
+`fetch(...)`, `cookies()`, `headers()`, `params`, `searchParams`, or `connection()` accessed outside of `<Suspense>` prevents the route from being prerendered, blocking the page load and leading to a slower user experience.
+
+Ways to fix this:
+  - [stream] Provide a placeholder with `<Suspense fallback={...}>` around the data access
+  - [cache] For uncached data (`fetch`, database calls): cache the access with `"use cache"` (does not apply to `connection()`)
+  - [block] Set `export const instant = false` to allow a blocking route
+
+Learn more: https://nextjs.org/docs/messages/blocking-prerender-dynamic
+Error occurred prerendering page "/scratch-s6-bare-connection". Read more: https://nextjs.org/docs/messages/prerender-error
+Export encountered an error on /scratch-s6-bare-connection/page: /scratch-s6-bare-connection, exiting the build.
+
+# note: same diagnostic id (blocking-prerender-dynamic). Dev serves 200; build exits 1. The log prefix is "Error:" in both; docs still call the non-fatal-in-dev presentation an "insight."

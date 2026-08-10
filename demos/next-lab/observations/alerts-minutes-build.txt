@@ -1,0 +1,7 @@
+﻿# produced: 2026-08-10; next@16.3.0; command: pnpm build with getAlerts cacheLife('minutes'); inspect .next/server/app/dashboard.html
+Route (app)                    Revalidate  Expire
+├ ◐ /dashboard                         1m      1h
+○  (Static)             prerendered as static content
+◐  (Partial Prerender)  prerendered as static HTML with dynamic server-streamed content
+ƒ  (Dynamic)            server-rendered on demand
+dashboard.html contains 'Scheduled maintenance': True

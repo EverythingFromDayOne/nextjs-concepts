@@ -13,9 +13,34 @@ data is older than that and the caching defaults **inverted**.
 
 ## Banned as live guidance
 
-Never write these as current advice. They appear **only** inside a
-**Then vs now** / **How this evolved** / **Migration** section, or inside a
-fenced code block whose preceding line carries the legacy marker:
+Never write Ban=`yes` ledger surfaces as current advice. They appear **only**
+in one of three allowed forms (enforced by `scripts/verify-legacy-markers.mjs`):
+
+1. Inside a section whose nearest heading matches
+   `/then vs now|how this evolved|migration|common mistakes/i`
+2. Inside a fenced code block whose **first content line** (or the line
+   immediately before the opening fence) carries the legacy marker comment
+3. Inside a `legacy-ok` region (for tables / inline prose that must name the
+   dead surface outside those sections)
+
+Legacy marker comment, exact form:
+
+```tsx
+// legacy: Next <16 implicit-caching model — see docs/evolution-ledger.md
+```
+
+Region markers (reason is mandatory and non-empty):
+
+```markdown
+<!-- legacy-ok:start reason=historical description of the pre-16 four-layer cache model -->
+…content permitted to mention banned surfaces…
+<!-- legacy-ok:end -->
+```
+
+Missing `reason=`, an unclosed start, or a nested start all fail CI. The
+summary line reports how many regions were used; `--verbose` lists each.
+
+Banned examples (see the ledger Ban column for the full list):
 
 - `export const dynamic`
 - `unstable_cache`
@@ -23,12 +48,6 @@ fenced code block whose preceding line carries the legacy marker:
 - `experimental_ppr` / `experimental.ppr`
 - `fetchCache`
 - `middleware.ts` (use `proxy.ts` when teaching the network boundary)
-
-Legacy marker comment, exact form:
-
-```tsx
-// legacy: Next <16 implicit-caching model — see docs/evolution-ledger.md
-```
 
 ## Editorial invariants
 

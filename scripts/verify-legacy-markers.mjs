@@ -1,97 +1,103 @@
 #!/usr/bin/env node
 /**
- * Fail if banned legacy Next.js surfaces appear outside Then-vs-now /
- * migration sections or legacy-marked fenced blocks.
+ * Fail if banned legacy Next.js surfaces appear outside an allowed context.
  *
- * Banned tokens are parsed from the "Old surface" column of
- * docs/evolution-ledger.md — do not hardcode a second copy.
+ * Allowed contexts (any one is enough):
+ *   1. Nearest preceding heading matches
+ *      /then vs now|how this evolved|migration|common mistakes/i
+ *   2. Fenced code block whose preceding line OR first content line carries
+ *      the // legacy: marker comment
+ *   3. Inside a <!-- legacy-ok:start reason=… --> … <!-- legacy-ok:end -->
+ *      region (reason= required and non-empty; no nesting; must close)
  *
- * Usage: node scripts/verify-legacy-markers.mjs [docsRoot] [ledgerPath]
+ * Banned tokens come from docs/evolution-ledger.md rows whose Ban column is
+ * `yes`. Rows with Ban `no` are skipped — put that decision in the ledger,
+ * not in a hardcoded exclusion list here.
+ *
+ * Unlike verify-code-blocks (draft softens) and verify-links (draft forward
+ * links warn), this gate hard-fails for every status.
+ *
+ * Usage: node scripts/verify-legacy-markers.mjs [--verbose] [docsRoot] [ledgerPath]
  */
 import fs from "node:fs";
 import path from "node:path";
 
-const SECTION_OK = /then vs now|how this evolved|migration/i;
+const SECTION_OK = /then vs now|how this evolved|migration|common mistakes/i;
 const LEGACY_MARKER =
   /\/\/\s*legacy:\s*Next\s*<\s*16\s+implicit-caching model\s*—\s*see docs\/evolution-ledger\.md/;
 const HEADING = /^(#{1,6})\s+(.*?)\s*$/;
 const FENCE_OPEN = /^(\s*)(```|~~~)([^\n]*)$/;
+const REGION_START = /<!--\s*legacy-ok:start\b([^>]*)-->/;
+const REGION_END = /<!--\s*legacy-ok:end\s*-->/;
+const REASON_ATTR = /\breason=(\S[\s\S]*?)\s*$/;
 
-function parseOldSurfaces(ledgerText) {
+function parseBannedTokens(ledgerText) {
   const tokens = new Set();
   const lines = ledgerText.split(/\r?\n/);
   let inTable = false;
+  let banCol = -1;
+  let oldCol = -1;
 
   for (const line of lines) {
     if (!line.startsWith("|")) {
       inTable = false;
+      banCol = -1;
+      oldCol = -1;
       continue;
     }
     const cells = line.split("|").map((c) => c.trim());
-    // markdown table rows: ["", col0, col1, ..., ""]
     if (cells.length < 3) continue;
-    const first = cells[1];
-    if (/^[-:\s]+$/.test(first)) {
+    const cols = cells.slice(1, -1);
+
+    if (cols.every((c) => /^[-:\s]+$/.test(c))) {
       inTable = true;
       continue;
     }
-    if (!inTable && first.toLowerCase() === "old surface") {
+
+    const headerIdx = cols.findIndex((c) => c.toLowerCase() === "old surface");
+    if (headerIdx !== -1) {
       inTable = true;
-      continue;
-    }
-    if (!inTable) continue;
-    if (first.toLowerCase() === "old surface") continue;
-
-    // Skip pure "new, no predecessor" rows — no old token to ban.
-    if (/^\*\(new/i.test(first) || first.includes("*(new, no predecessor)*")) {
+      oldCol = headerIdx;
+      banCol = cols.findIndex((c) => c.toLowerCase() === "ban");
       continue;
     }
 
-    extractTokens(first, tokens);
+    if (!inTable || oldCol === -1) continue;
+
+    const oldSurface = cols[oldCol] ?? "";
+    const ban = (banCol === -1 ? "yes" : cols[banCol] ?? "").toLowerCase();
+
+    if (/^\*\(new/i.test(oldSurface) || oldSurface.includes("*(new, no predecessor)*")) {
+      continue;
+    }
+    if (ban !== "yes") continue;
+
+    extractTokens(oldSurface, tokens);
   }
 
   return [...tokens].sort((a, b) => b.length - a.length);
 }
 
 function extractTokens(cell, tokens) {
-  // Prefer fenced code spans; also pick bare identifiers when useful.
   const codeSpans = cell.matchAll(/`([^`]+)`/g);
   for (const m of codeSpans) {
     const raw = m[1].trim();
     if (!raw) continue;
-    // Split alternates: `unstable_noStore()` / `noStore()`
     for (const part of raw.split(/\s*\/\s*/)) {
       addTokenVariants(part.trim(), tokens);
     }
   }
-
-  // Non-code prose tokens that still name banned surfaces.
-  if (/unmount-on-navigate/i.test(cell)) {
-    tokens.add("unmount-on-navigate");
-  }
-  if (/eager prefetch/i.test(cell)) {
-    tokens.add("eager prefetch");
-  }
-  if (/\bWebpack\b/.test(cell)) {
-    tokens.add("Webpack");
-  }
 }
 
 function addTokenVariants(token, tokens) {
-  if (!token || token === "*(new, no predecessor)*") return;
-
-  // Too short / punctuation-only — e.g. `[]` from "returning `[]`".
+  if (!token) return;
   if (token.length < 3 || /^[\[\](){},.\s]+$/.test(token)) return;
 
   tokens.add(token);
 
-  // Also ban the config key form without the assignment value.
-  // e.g. export const dynamic = 'force-dynamic' → also match export const dynamic
   const assign = token.match(/^(export const \w+)\s*=/);
   if (assign) tokens.add(assign[1]);
 
-  // fetch(url, { cache, next: { revalidate, tags } }) → fetch with next.revalidate is hard;
-  // keep the full token and a shorter distinctive form.
   if (token.startsWith("fetch(")) {
     tokens.add("next: { revalidate");
     tokens.add("next:{ revalidate");
@@ -121,35 +127,88 @@ function walkMarkdown(root) {
   return files;
 }
 
+function parseReason(attrs) {
+  const m = REASON_ATTR.exec(attrs.trim());
+  if (!m) return null;
+  const reason = m[1].trim();
+  return reason.length > 0 ? reason : null;
+}
+
 function checkFile(filePath, root, tokens) {
-  const rel = path.relative(root, filePath);
-  // The ledger itself defines the old surfaces — skip it.
-  if (rel.replace(/\\/g, "/") === "evolution-ledger.md") return [];
+  const rel = path.relative(root, filePath).replace(/\\/g, "/");
+  if (rel === "evolution-ledger.md") {
+    return { failures: [], regions: [] };
+  }
 
   const text = fs.readFileSync(filePath, "utf8");
   const lines = text.split(/\r?\n/);
   const failures = [];
+  const regions = [];
 
   let currentHeading = "";
   let inFence = false;
   let fenceLegacy = false;
+  let fenceSawContent = false;
   let prevLine = "";
+  let inRegion = false;
+  let regionStartLine = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const lineno = i + 1;
+
+    const start = REGION_START.exec(line);
+    if (start) {
+      if (inRegion) {
+        failures.push(
+          `${rel}:${lineno} — nested legacy-ok:start (previous start at line ${regionStartLine})`
+        );
+      }
+      const reason = parseReason(start[1] ?? "");
+      if (!reason) {
+        failures.push(
+          `${rel}:${lineno} — legacy-ok:start missing required non-empty reason= attribute`
+        );
+        // Still open a region so a later end can close it, but do not count it.
+        inRegion = true;
+        regionStartLine = lineno;
+      } else {
+        inRegion = true;
+        regionStartLine = lineno;
+        regions.push({ file: rel, line: lineno, reason });
+      }
+      prevLine = line;
+      continue;
+    }
+
+    if (REGION_END.test(line)) {
+      if (!inRegion) {
+        failures.push(`${rel}:${lineno} — legacy-ok:end without a matching start`);
+      }
+      inRegion = false;
+      regionStartLine = 0;
+      prevLine = line;
+      continue;
+    }
 
     const fence = line.match(FENCE_OPEN);
     if (fence) {
       if (!inFence) {
         inFence = true;
         fenceLegacy = LEGACY_MARKER.test(prevLine);
+        fenceSawContent = false;
       } else {
         inFence = false;
         fenceLegacy = false;
+        fenceSawContent = false;
       }
       prevLine = line;
       continue;
+    }
+
+    if (inFence && !fenceSawContent && line.trim() !== "") {
+      fenceSawContent = true;
+      if (LEGACY_MARKER.test(line)) fenceLegacy = true;
     }
 
     const heading = line.match(HEADING);
@@ -160,15 +219,14 @@ function checkFile(filePath, root, tokens) {
     }
 
     const sectionOk = SECTION_OK.test(currentHeading);
-    const allowed = sectionOk || (inFence && fenceLegacy);
+    const allowed = sectionOk || (inFence && fenceLegacy) || inRegion;
 
     if (!allowed) {
       for (const token of tokens) {
         if (line.includes(token)) {
           failures.push(
-            `${rel}:${lineno} — banned legacy surface '${token}' outside a Then-vs-now section or legacy-marked block`
+            `${rel}:${lineno} — banned legacy surface '${token}' outside a Then-vs-now section, legacy-marked block, or legacy-ok region`
           );
-          // One failure per line is enough signal.
           break;
         }
       }
@@ -177,13 +235,22 @@ function checkFile(filePath, root, tokens) {
     prevLine = line;
   }
 
-  return failures;
+  if (inRegion) {
+    failures.push(
+      `${rel}:${regionStartLine} — unclosed legacy-ok:start (reached EOF without legacy-ok:end)`
+    );
+  }
+
+  return { failures, regions };
 }
 
 function main() {
-  const docsRoot = path.resolve(process.argv[2] ?? "docs");
+  const argv = process.argv.slice(2);
+  const verbose = argv.includes("--verbose");
+  const positional = argv.filter((a) => a !== "--verbose");
+  const docsRoot = path.resolve(positional[0] ?? "docs");
   const ledgerPath = path.resolve(
-    process.argv[3] ?? path.join(docsRoot, "evolution-ledger.md")
+    positional[1] ?? path.join(docsRoot, "evolution-ledger.md")
   );
 
   if (!fs.existsSync(ledgerPath)) {
@@ -195,25 +262,36 @@ function main() {
     process.exit(1);
   }
 
-  const tokens = parseOldSurfaces(fs.readFileSync(ledgerPath, "utf8"));
+  const tokens = parseBannedTokens(fs.readFileSync(ledgerPath, "utf8"));
   if (tokens.length === 0) {
     console.error(
-      "verify-legacy-markers: parsed zero tokens from Old surface column"
+      "verify-legacy-markers: parsed zero Ban=yes tokens from evolution ledger"
     );
     process.exit(1);
   }
 
-  console.log(`parsed ${tokens.length} banned token(s) from evolution ledger`);
+  console.log(`parsed ${tokens.length} banned token(s) from evolution ledger (Ban=yes)`);
 
   const files = walkMarkdown(docsRoot);
   const failures = [];
+  const regions = [];
   for (const file of files) {
-    failures.push(...checkFile(file, docsRoot, tokens));
+    const result = checkFile(file, docsRoot, tokens);
+    failures.push(...result.failures);
+    regions.push(...result.regions);
   }
 
   for (const f of failures) console.error(f);
+
+  if (verbose) {
+    for (const r of regions) {
+      console.log(`${r.file}:${r.line} — ${r.reason}`);
+    }
+  }
+
+  const regionFiles = new Set(regions.map((r) => r.file)).size;
   console.log(
-    `\nchecked ${files.length} file(s); ${failures.length} legacy violation(s)`
+    `verify-legacy-markers: ${files.length} file(s); ${failures.length} failure(s); ${regions.length} legacy-ok region(s) across ${regionFiles} file(s)`
   );
   process.exit(failures.length ? 1 : 0);
 }

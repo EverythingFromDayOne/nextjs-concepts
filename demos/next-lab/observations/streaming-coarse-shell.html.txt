@@ -1,0 +1,2 @@
+# produced: 2026-08-10; next@16.3.0; command: read .next/server/app/streaming-coarse.html; trim to <main>…</main>
+<main><!--$?--><template id="B:0"></template><section aria-busy="true"><h2>Weekly report</h2><dl><div><dt> </dt><dd> </dd></div><div><dt> </dt><dd> </dd></div><div><dt> </dt><dd> </dd></div><div><dt> </dt><dd> </dd></div></dl></section><!--/$--></main>

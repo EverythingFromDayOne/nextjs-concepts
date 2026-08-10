@@ -1,0 +1,5 @@
+# produced: 2026-08-10; next@16.3.0; command: curl -N --raw -w timings http://localhost:3015/streaming-coarse
+0.030046 first byte
+1.548515 total
+# note: TTFB is the single skeleton shell (early). total ≈ 1.5s — gated on getErrors.
+# resolved Summary + all panels arrive together in one hole swap ($RC("B:0","S:0")), not as siblings.

@@ -2,9 +2,16 @@
 /**
  * Verify relative markdown links and anchors under docs/.
  *
- * Sibling repos did not ship verify-links.mjs at scaffold time.
- * Behaviour mirrors nestjs-concepts/scripts/check-links.py contract:
- * exit non-zero on failure, print file:line.
+ * Policy (do not unify with verify-legacy-markers):
+ * - Sibling cross-repo links (`../../*-concepts/…`) warn rather than fail when
+ *   the sibling checkout is missing (roadmap §7.5).
+ * - Draft articles may forward-link to not-yet-written corpus paths; those
+ *   missing targets warn rather than fail. Promoting past draft requires the
+ *   targets to exist.
+ *
+ * Contrast: verify-legacy-markers hard-fails for every status (including draft).
+ * Softening belongs here because Wave 1 → Wave 5 forward links are a genuine
+ * sequencing problem; softening the legacy gate is not — that was reverted.
  *
  * Usage: node scripts/verify-links.mjs [root]
  */
@@ -14,7 +21,7 @@ import path from "node:path";
 const FENCE = /^\s*(```|~~~)/;
 const LINK = /\[[^\]]*\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const INLINE_CODE = /`+[^`]*`+/g;
-const HEADING = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
+const HEADING = /^(#{1,6})\s+(.*?)\s*$/;
 const SKIP_DIRS = new Set([
   ".git",
   "node_modules",
@@ -23,6 +30,7 @@ const SKIP_DIRS = new Set([
   "coverage",
   ".next",
 ]);
+const SIBLING_REPO = /(?:^|[/\\])(?:angular|reactjs|nestjs|dsa|nextjs)-concepts(?:[/\\]|$)/;
 
 function stripFences(text) {
   const out = [];
@@ -53,6 +61,14 @@ function slugify(heading) {
   text = text.replace(/[`*_~]/g, "");
   text = text.replace(/[^\w\- ]/g, "");
   return text.replace(/ /g, "-");
+}
+
+function frontmatterStatus(text) {
+  const cleaned = text.replace(/^\uFEFF/, "");
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(cleaned);
+  if (!m) return undefined;
+  const s = /^status:\s*(\S+)/m.exec(m[1]);
+  return s?.[1];
 }
 
 function walkMarkdown(root) {
@@ -96,9 +112,13 @@ function main() {
   const files = walkMarkdown(root);
   const anchorCache = new Map();
   const failures = [];
+  const warnings = [];
 
   for (const filePath of files) {
-    const body = stripFences(fs.readFileSync(filePath, "utf8"));
+    const raw = fs.readFileSync(filePath, "utf8");
+    const status = frontmatterStatus(raw);
+    const draftSoft = status === "draft";
+    const body = stripFences(raw);
     const lines = body.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].replace(INLINE_CODE, "");
@@ -118,7 +138,11 @@ function main() {
         if (filePart) {
           resolved = path.resolve(path.dirname(filePath), filePart);
           if (!fs.existsSync(resolved)) {
-            failures.push(`${rel}:${lineno} — missing file -> ${target}`);
+            const msg = `${rel}:${lineno} — missing file -> ${target}`;
+            const soft =
+              draftSoft || SIBLING_REPO.test(resolved) || SIBLING_REPO.test(target);
+            if (soft) warnings.push(msg);
+            else failures.push(msg);
             continue;
           }
         }
@@ -128,15 +152,18 @@ function main() {
           anchorCache.set(resolved, anchorsOf(resolved));
         }
         if (!anchorCache.get(resolved).has(anchor)) {
-          failures.push(`${rel}:${lineno} — missing anchor -> ${target}`);
+          const msg = `${rel}:${lineno} — missing anchor -> ${target}`;
+          if (draftSoft) warnings.push(msg);
+          else failures.push(msg);
         }
       }
     }
   }
 
+  for (const w of warnings) console.warn(`verify-links (warning): ${w}`);
   for (const f of failures) console.error(f);
   console.log(
-    `\nchecked ${files.length} file(s); ${failures.length} broken link(s)`
+    `\nchecked ${files.length} file(s); ${failures.length} broken link(s); ${warnings.length} warning(s)`
   );
   process.exit(failures.length ? 1 : 0);
 }
