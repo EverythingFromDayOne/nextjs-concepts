@@ -26,7 +26,7 @@ Numbering = reading order. No revision-1 (42-article) numbering survives here.
 | 5 | `rendering/static-shell-and-streaming` | 🟢 | `status: review`; predictions measured; TTFB framing corrected |
 | 6 | `caching/cache-components-model` | 🟢 | `status: review`; `.md.tpl` extraction pipeline proven |
 | 7 | `rendering/client-side-rendering` | ⚪ | |
-| 8 | `foundations/rules-of-the-server-boundary` | ⚪ | |
+| 8 | `foundations/rules-of-the-server-boundary` | 🟢 | `status: draft`; eleven-probe enforcement matrix measured in full; template converted `.tpl`-native from session start (moved from `prompts/session7/` per the new staging convention) |
 
 ## Wave 2 — Caching (6)
 
@@ -133,7 +133,8 @@ demo-route jobs — not article prose work.
 ### `foundations/server-and-client-components`
 
 - [x] Bundle method without First Load JS — `entryJSFiles` from client-reference manifest; stage deltas recorded (noise); `_stages/` not in build table
-- [ ] Exact error text for importing a Server Component into a Client Component under Turbopack
+- [x] Exact error text for importing a Server Component into a Client Component under Turbopack — measured session 7 (article 8, probe 8): no error at all if the component has no server-only content (silently reclassified as client code); `You're importing a module that depends on "next/headers" into a React Client Component module …` if it uses a Node-only API; the generic `blocking-prerender-dynamic` error if it does uncached, unsuspended data access. There is no error specific to "Server Component imported into Client Component" as such.
+- [x] Class instance across the client boundary — measured session 7 (article 8, probe 10): hard build failure (`Only plain objects, and a few built-ins, can be passed to Client Components from Server Components. Classes or null prototypes are not supported.`), **not** the silent fields-arrive/methods-`undefined` degradation this article previously assumed. Corrected in this article (`How it works under the hood` + Common mistake #6) in the same change that landed article 8.
 - [ ] Whether the RSC payload node shape in "How it works" should be a real captured payload fragment
 - [ ] Replace authored code blocks via extraction from `demos/next-lab/app/catalog/` (`_stages/` + stage-4 `page.tsx`)
 
@@ -145,6 +146,16 @@ demo-route jobs — not article prose work.
 - [x] Exp4 — `after()` ordering + visitor total ≪ 300ms (`observations/after-ordering.txt`)
 - [x] Cached-timestamp section landed (`lib/stamped.ts`); article at `status: review`
 - [x] Session-6 corrections: `insight-vs-build-error.txt`; severity claim falsified+rewritten in articles 4 + 6 + roadmap §5; sync-IO unified as one rule
+
+### `foundations/rules-of-the-server-boundary`
+
+- [x] All eleven probes run serially, one at a time, each isolated by a full build cycle — `observations/enforcement-matrix.txt`
+- [x] Probe 8 (Server Component imported into a Client Component) re-run with two extra variants after the first pass returned a generic, boundary-unrelated error — no-server-API case builds clean and ships silently; `next/headers` case fails with a named, specific error
+- [x] Probe 9 (function prop across the boundary) re-run with a non-event-handler-named prop — confirms the error message is name-sensitive (`onClick` → the DOM-event-handler message; anything else → the generic function-serialization message), not just type-sensitive
+- [x] Probe 10 (class instance across the boundary) — resolved: hard build failure, not silent. Corrects `foundations/server-and-client-components` in the same change
+- [x] §3 route-lifetime-column probe — resolved (not left ambiguous): the Revalidate/Expire column tracks the shortest lifetime among `'use cache'` entries actually evaluated during the route's build-time prerender pass, regardless of whether that entry's content lands in the visible shell. Roadmap §3 article-10 note updated with the resolved mechanism.
+- [x] Four antipattern files kept (`non-async-cached-fn.ts`, `hooks-in-server-component.tsx`, `imported-server-component.tsx`, `class-instance-prop.tsx`), each with a measured `// fails:` line
+- [x] §5 housekeeping: "insight"-as-severity usage already corrected in session 6, nothing left to change; article 4 gained one sentence on `instant = false` costing the segment its shell (`ƒ` Dynamic, not `◐`), measured against `/insight-probe`; roadmap article-10 note upgraded with the resolved §3 mechanism
 
 ---
 
@@ -267,3 +278,15 @@ Recorded 2026-08-10 from the official `useTypeScriptCli` reference and the bump 
 - Observation batch via `scripts/session6-observe.mjs` (unique public scratch routes; do not use `_`-private folders; do not wipe `.next` mid-run on Windows).
 - Exp1: all four sync-IO primitives caught. Exp2: `instant=false` does not clear. Exp3: `new Date()` in `'use cache'` **builds + runs + freezes** — section "Cached timestamps are legal — and a trap" added. Exp4: `[render]` then `time_total≈0.24s` then `[audit]` (~436ms after queue).
 - Template built; gates green; demo build green (`/when`, `/after-demo` as `◐`). Ships `status: draft`. Clean observe pass ≈ **80s**; wall time inflated by concurrent orphan builds/locks — compare to session 5’s 15–20 min once tooling is quiet.
+
+### 7 — 2026-08-10 — article 8 demos (eleven-probe enforcement matrix)
+
+- Template started life at `prompts/session7/rules-of-the-server-boundary.md.tpl` per the new staging convention (roadmap §5), moved into `docs/concepts/foundations/` as the session's final step, once all `{EXTRACT:}` targets existed.
+- All eleven probes run serially via `demos/next-lab/scripts/session7-observe.mjs` (one violation at a time: write → `pnpm build` → capture → if it built, `next start` + `curl` → capture → remove). Linux port-kill required two hardening passes: `next start` spawns a detached `next-server` grandchild that neither `lsof -ti` nor a plain `child.kill()` reliably reaches in this sandbox, so port readiness is now a real bind-attempt (`net.createServer().listen()`), and the child is killed via its process group (`spawn(..., { detached: true })` + `process.kill(-pid, …)`).
+- Probes 1, 2, 4, 6, 7, 11 all fail at build with specific, named errors. Probe 3 (reused, reconfirmed) and probe 5 (reused, reconfirmed) unchanged from sessions 3/6. Probes 8–10 needed follow-up variants — see below.
+- **Probe 8 doesn't collapse to one verdict.** The original design (async component doing an uncached `db` call) failed at build, but via the generic `blocking-prerender-dynamic` error, unrelated to the client boundary. Two more variants isolated the real rule: a directive-less component with no server-only content, imported into a Client Component, **builds and ships silently** (its code is inlined into the client bundle with no separate manifest entry and no warning); the same shape using `next/headers` fails with a specific "only available in Server Components" error. There is no check that says "a Server Component may not be imported into a Client Component" — only "a module reachable from the client import graph runs on the client."
+- **Probe 9's message is name-sensitive.** A function prop named `onClick` gets the DOM-event-handler-specific error; the identical function under a different name gets the generic function-serialization error. Both are build failures.
+- **Probe 10 resolved the article's open question: not silent.** `Error: Only plain objects, and a few built-ins, can be passed to Client Components from Server Components. Classes or null prototypes are not supported.` — a hard build failure, not the fields-arrive/methods-`undefined` degradation both this article and `foundations/server-and-client-components` had assumed. Corrected both articles in the same change.
+- §3 follow-up resolved (not left ambiguous): added a second, shorter-lived `'use cache'` entry to `/streaming-coarse`; the Revalidate/Expire column moved from `1h 1d` to `1m 1h`, confirming it tracks the shortest lifetime among entries actually evaluated during the build, independent of shell membership. Roadmap §3 article-10 note rewritten with the resolved mechanism.
+- Four antipattern files kept (probes 1, 6, 8, 10), each with a measured `// fails:` line; all scratch routes and libs removed after each probe. §5 housekeeping: "insight"-as-severity already fixed in session 6 (nothing to change); one sentence added to article 4 on `instant = false` costing the segment its shell entirely (`ƒ` Dynamic).
+- Full gate chain green: `verify:templates`, `verify:code-blocks --strict` (0 failures, 10 files), `verify:links` (0 hard failures), `verify:legacy`, demo build, demo test.
