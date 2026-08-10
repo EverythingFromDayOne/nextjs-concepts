@@ -55,7 +55,7 @@ Runs on the server, produces payload, and is gone. It has no browser existence, 
 - May be `async` and may `await` freely.
 - Runtime APIs are allowed but **abort the prerender** at the call site.
 - May render Client Components; the props must serialize.
-- **May not be imported by a Client Component.** It may be passed to one as `children` or an element prop.
+- **Importing one into a Client Component doesn't error — it reclassifies.** There is no compiler flag on a plain module that says "this is a Server Component"; a directive-less file reached through a `'use client'` import graph simply becomes part of the client bundle too, silently (probe 8 in the matrix below — measured, not assumed). The build only fails afterward, if that now-reclassified module then uses something the client bundle genuinely cannot run: a Node-only API like `next/headers` (a clear, specific error), or uncached data access outside `<Suspense>` (the same generic prerender error any route would get, unrelated to the boundary). Pass it as `children` or an element prop instead, and it stays a Server Component.
 
 ### Client Component — `'use client'`
 
@@ -97,9 +97,27 @@ The trap that falls out is worth stating plainly, because nothing in the rendere
 
 Every row below was produced by writing the violation, building, and — where it built — requesting the route. Nothing here is inferred from documentation.
 
-{ENFORCEMENT_MATRIX}
+| # | Probe | Build | Runtime | Silent? |
+| --- | --- | --- | --- | --- |
+| 1 | `'use cache'` on a non-async function | **fails** — `"use cache" functions must be async functions.` | n/a | no |
+| 2 | `cacheLife()` at module scope | **fails** — `` `cacheLife()` can only be called inside a "use cache" function. `` | n/a | no |
+| 3 | `cookies()` inside a cached scope | passes (route is dynamic; nothing here is statically analyzable) | **fails** — `Route … used cookies() inside "use cache". Accessing Dynamic data sources inside a cache scope is not supported.` (HTTP 200, error surfaced in the response body with a digest) | no — loud, but only once the route actually runs |
+| 4 | `connection()` inside a cached scope | **fails** — `Route … used connection() inside "use cache" … this function is not allowed in this scope.` | n/a | no |
+| 5 | `new Date()` inside a cached scope | passes | passes — same timestamp returned 2s apart | **yes** — freezes at cache-entry creation; nothing in the response marks it stale |
+| 6 | `useState` in a Server Component | **fails** — `You're importing a module that depends on useState into a React Server Component module. … mark the file … with "use client".` | n/a | no |
+| 7 | `onClick` on an element in a Server Component | **fails** — `Event handlers cannot be passed to Client Component props.` | n/a | no |
+| 8 | Server Component imported into a Client Component | **depends — see note below the table** | n/a | **partially** — the no-server-API case is fully silent |
+| 9 | a function passed as a prop across the client boundary | **fails** — message depends on the prop's name (see note below the table) | n/a | no |
+| 10 | a class instance passed as a prop across the boundary | **fails** — `Only plain objects, and a few built-ins, can be passed to Client Components from Server Components. Classes or null prototypes are not supported.` | n/a | **no — measured, corrects an earlier assumption in this article and in `foundations/server-and-client-components`** |
+| 11 | a non-async export in a `'use server'` file | **fails** — `Server Actions must be async functions.` | n/a | no |
 
-**Read the right-hand column, not the left.** A rule enforced at build time is a rule you cannot get wrong. A rule enforced at request time is one that ships if the failing path isn't exercised — which is how a code path only signed-in users reach fails first in production. A rule enforced nowhere is one only review will catch.
+**Probe 8 doesn't collapse to one verdict.** Three variants were run: a component doing uncached, unsuspended data access fails with the same generic `blocking-prerender-dynamic` error any such route gets, regardless of the client boundary; a component with no server-only content at all **builds clean and ships**, silently inlined into the client bundle with no error and no warning; a component using a genuinely server-only API (`next/headers`) fails with a specific "only available in Server Components" error naming the API. The rule isn't "a Server Component may not be imported into a Client Component" — there is no such check. The rule is "a module reachable from a Client Component's imports runs on the client," and everything else follows from what that module then tries to do.
+
+**Probe 9's error message is name-sensitive, not just type-sensitive.** A function prop named like a DOM event handler (`onClick`) gets `Event handlers cannot be passed to Client Component props.` The identical function under a different name (`doThing`) gets the more general `Functions cannot be passed directly to Client Components unless you explicitly expose it by marking it with "use server".` Both are build failures; only the message differs.
+
+**Probe 10 answers the question this session was run to settle: it is not silent.** An earlier draft of this article — and of `foundations/server-and-client-components` — assumed a class instance would degrade the way a `Date` subclass or similar might: fields present, methods quietly `undefined`. It does not degrade. It is caught at the same prerender step as a bare function prop, with a message that names the actual defect (`Classes or null prototypes are not supported`). Both articles are corrected to state the build failure rather than the assumed silent gap.
+
+**Read the right-hand column, not the left.** A rule enforced at build time is a rule you cannot get wrong. A rule enforced at request time is one that ships if the failing path isn't exercised — which is how a code path only signed-in users reach fails first in production. A rule enforced nowhere is one only review will catch. Only probe 5, and the no-server-API half of probe 8, land in that last category here.
 
 ---
 
@@ -171,9 +189,9 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 2, 8, 14, 17.
 
 **3. Reading a cached timestamp as "now."** It is the entry's creation time and nothing in the output says so.
 
-**4. Importing a Server Component into a Client Component.** The import is what moves it. Pass it as `children`.
+**4. Importing a Server Component into a Client Component.** Nothing stops you at that line — the import silently reclassifies the module as client code (matrix probe 8). The failure, if there is one, shows up later and elsewhere: a Node-only API it uses, or an unsuspended data call. Pass it as `children` instead, and it stays a Server Component.
 
-**5. Passing a class instance across the boundary.** See the matrix row — the enforcement here is the one to check before you rely on it.
+**5. Passing a class instance across the boundary.** This is a hard build failure (`Classes or null prototypes are not supported`), not a silent shape where fields arrive and methods don't — matrix probe 10, measured. Map to a plain object before the boundary.
 
 **6. Hiding a button and calling it authorization.** The endpoint remains.
 
@@ -187,9 +205,9 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 2, 8, 14, 17.
 
 **1. Predict the matrix.** Before reading it, write down for each of the eleven probes whether you expect build, runtime, or silent. Score yourself. The rows you got wrong are the rules you are currently relying on luck for.
 
-**2. Find a silent one in your own code.** Search for props crossing a client boundary that are not plain objects — model instances, dates inside class wrappers, anything with methods. Check what the client actually receives.
+**2. Find a silent one in your own code.** The genuinely silent case in this matrix isn't the class instance — that one is a loud build failure. It's a directive-less component reachable from a `'use client'` import: it becomes client code with no error and no marker anywhere in the source. Search your client components' imports for a file with no `'use client'` or `'use server'` of its own, and check whether you meant for it to run in the browser.
 
-*Hint: log `Object.getPrototypeOf(prop)` on the client and see what you get.*
+*Hint: check `page_client-reference-manifest.js` for the route — a silently reclassified module won't appear as its own entry; its code is inlined into whichever Client Component imported it.*
 
 **3. Audit one Server Function.** Take one from an app you have and ask what happens if a stranger calls it with valid-looking arguments. If the answer depends on which UI called it, you have found a real one.
 
@@ -229,4 +247,4 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 2, 8, 14, 17.
 
 `demos/next-lab/lib/billing.ts`, `demos/next-lab/app/dashboard/`, `demos/next-lab/app/products/[slug]/`, the four files in `demos/next-lab/antipatterns/` named above, and `demos/next-lab/observations/enforcement-matrix.txt`.
 
-> **Verification status.** Verified against `next@16.3.0`. The enforcement matrix is measured in full — every row from a build, and a request where the build succeeded. The bounded-staleness unification of the two sync-IO results is marked in-text as **my inference** from measured behavior rather than documented rationale. **One row is load-bearing for two other articles:** if a class instance crossing the client boundary is *not* silent, articles 2 and this one both overclaim and need correcting. Every code block here is extracted; the matrix was authored from measurements by the session that ran them, not by the article's author.
+> **Verification status.** Verified against `next@16.3.0`. The enforcement matrix is measured in full — every row from a build, and a request where the build succeeded. Probe 8 and probe 9 were each re-run with an extra variant beyond the original eleven, because the first pass surfaced a generic error unrelated to the thing being tested; both are reported in full under the matrix. The bounded-staleness unification of the two sync-IO results is marked in-text as **my inference** from measured behavior rather than documented rationale. **Probe 10 was the load-bearing row, and it resolved:** a class instance crossing the client boundary is a hard build failure, not silent. `foundations/server-and-client-components` overclaimed a silent degradation and has been corrected in the same change that landed this article. Every code block here is extracted; the matrix was authored from measurements by the session that ran them, not by the article's author.
