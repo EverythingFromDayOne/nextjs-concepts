@@ -543,3 +543,89 @@ Error: Server Actions must be async functions.
 Ecmascript file had an error
 
 Import trace:
+
+### Probe 3 follow-up: splitting into 3a (route otherwise prerenderable) and 3b (route already dynamic)
+Original probe 3 above reused app/leak-a/page.tsx, which reads cookies() in the route
+body itself (outside the cached function) in addition to getDashboardLeakA() reading it
+inside the cache scope. That outer read already makes the route dynamic, so Next never
+attempts to prerender it at build -- the "cookies() inside use cache" violation only surfaces
+once the route is actually requested. Read on its own, that single result says "this
+violation is runtime-only," which is too strong: it is runtime-only *because something else
+already forced the route dynamic*, not because of anything about the violation itself.
+Re-ran with a route that has no dynamic API of its own, so the cached function's violation is
+the only thing standing between the route and a full build-time prerender.
+
+**3a -- same cached function, called from a route with no outer dynamic API:**
+```
+app/scratch-s7-p3a/page.tsx:
+  import { getDashboardLeakA } from '@/lib/billing-leak-a'
+  import { UsageChart } from '@/app/dashboard/parts'
+
+  export default async function Page() {
+    const usage = await getDashboardLeakA()
+    return <UsageChart usage={usage} />
+  }
+```
+build: FAIL (exit 1)
+build error (first line): Error: Route /scratch-s7-p3a used `cookies()` inside "use cache". Accessing Dynamic data sources inside a cache scope is not supported.
+runtime: not run -- build failed
+silent?: n/a -- caught at build, with a source frame naming the exact line
+full extract:
+```
+  Generating static pages using 3 workers (5/20)
+Error: Route /scratch-s7-p3a used `cookies()` inside "use cache". Accessing Dynamic data sources inside a cache scope is not supported. If you need this data inside a cached function use `cookies()` outside of the cached function and pass the required dynamic data in as an argument. See more info here: https://nextjs.org/docs/messages/next-request-in-use-cache
+    at h (lib/billing-leak-a.ts:8:22)
+   6 |   'use cache'
+   7 |   cacheLife('minutes')
+>  8 |   const uid = (await cookies()).get('uid')?.value ?? 'anonymous'
+     |                      ^
+   9 |   return db.usage.forUser(uid)
+  10 | }
+  11 | {
+  digest: '698979163@E831'
+}
+Error occurred prerendering page "/scratch-s7-p3a". Read more: https://nextjs.org/docs/messages/prerender-error
+Export encountered an error on /scratch-s7-p3a/page: /scratch-s7-p3a, exiting the build.
+Next.js build worker exited with code: 1 and signal: null
+ ELIFECYCLE  Command failed with exit code 1.
+```
+
+**3b -- original probe 3, restated: same cached function, called from app/leak-a/page.tsx,
+which reads cookies() itself outside the cache scope:**
+build: PASS (exit 0) -- ships as Partial Prerender (/leak-a); the outer cookies() read
+already makes the route dynamic, so build never attempts to prerender past that point, and
+the cached function's own cookies() call is never evaluated during the build.
+runtime: curl -i -H 'Cookie: uid=user-alice' http://localhost:3017/leak-a ->
+```
+HTTP/1.1 200 OK
+x-nextjs-stale-time: 300
+x-nextjs-postponed: 1
+Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate
+Content-Type: text/html; charset=utf-8
+```
+x-nextjs-postponed: 1 confirms the server is resuming a deferred/postponed render, not
+serving a build-time prerender. The response body is 200 all the way through; the failure
+is carried inside the streamed RSC payload as a digest, not as an HTTP error:
+```
+5:E{"digest":"41891706@E831"}
+...
+$RX("B:0","41891706@E831")
+```
+React resolves that into the Suspense boundary's client-rendered error UI. There is no
+non-200 status and no build-time signal anywhere -- a health check that only looks at the
+HTTP status code would see this route as healthy.
+silent?: no -- loud once requested, but request-time-only: nothing at build says this route
+has a landmine in it, and the failure mode (digest in a streamed payload, 200 status) is
+easy to miss if you aren't specifically diffing response bodies.
+
+**Finding.** Both runs hit the identical violation -- cookies() read inside
+getDashboardLeakA()'s 'use cache' scope -- in the identical function. The only thing that
+differs is whether something *else*, outside the cached function, already made the calling
+route dynamic before Next reached the violation. If nothing else does (3a), Next attempts a
+full build-time prerender, walks into the cached function, and the violation is a hard build
+failure with a source frame. If something else already forced the route dynamic (3b), Next
+never attempts that prerender at build -- the whole subtree defers to request time, and the
+violation is only evaluated, and only fails, when a real request resumes that deferred
+render. The enforcement phase for this rule is not a fixed property of the rule or of the
+cached function that breaks it -- it is a property of the calling route's shape, specifically
+whether anything outside the cache scope already opted that route out of prerendering.
