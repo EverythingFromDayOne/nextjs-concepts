@@ -629,3 +629,150 @@ violation is only evaluated, and only fails, when a real request resumes that de
 render. The enforcement phase for this rule is not a fixed property of the rule or of the
 cached function that breaks it -- it is a property of the calling route's shape, specifically
 whether anything outside the cache scope already opted that route out of prerendering.
+
+### Probe 4 follow-up: does the 3b mechanism generalize to a different cache-scope violation? (4a/4b)
+Original probe 4 above used a scratch route with no dynamic API of its own -- in the a/b
+naming introduced by the probe 3 follow-up, that makes original probe 4 the "4a" shape
+(build failure). Re-ran the identical connection()-inside-'use cache' violation from a route
+shaped like app/leak-a: an outer, uncached cookies() read inside a Suspense boundary, with
+the cached function called below it.
+
+**4b -- same cached function (connection() inside 'use cache'), called from a route already
+dynamic for an unrelated reason:**
+```
+lib/_scratch-p4b.ts:
+  import { cacheLife } from 'next/cache'
+  import { connection } from 'next/server'
+
+  export async function getThingWithConnection() {
+    'use cache'
+    cacheLife('minutes')
+    await connection()
+    return 'x'
+  }
+app/scratch-s7-p4b/page.tsx:
+  import { Suspense } from 'react'
+  import { cookies } from 'next/headers'
+  import { getThingWithConnection } from '@/lib/_scratch-p4b'
+
+  export default function Page() {
+    return (
+      <main>
+        <Suspense fallback={<p aria-busy="true">Loading…</p>}>
+          <Body />
+        </Suspense>
+      </main>
+    )
+  }
+
+  async function Body() {
+    const uid = (await cookies()).get('uid')?.value
+    void uid
+    const v = await getThingWithConnection()
+    return <p>{v}</p>
+  }
+```
+build: PASS (exit 0) -- ships as Partial Prerender (/scratch-s7-p4b), same shape as
+/leak-a and /scratch-s7-p3b would be. No error text anywhere in the build output; the outer
+cookies() read already makes the route dynamic, so build never attempts to prerender past
+that point, and the cached function's own connection() call is never evaluated during build.
+runtime: curl -i -H 'Cookie: uid=user-alice' http://localhost:3018/scratch-s7-p4b ->
+```
+HTTP/1.1 200 OK
+x-nextjs-stale-time: 300
+x-nextjs-postponed: 1
+Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate
+Content-Type: text/html; charset=utf-8
+```
+Error surfaces inside the streamed RSC payload as a digest, HTTP status still 200:
+```
+5:E{"digest":"1250442371@E841"}
+```
+(the "@E841" suffix matches the digest suffix on the original probe 4 build-time error,
+'1844425504@E841' -- same error class, different phase.)
+silent?: no -- loud once requested, but request-time-only, same as 3b.
+
+**Finding.** connection()-inside-'use cache' behaves identically to cookies()-inside-'use
+cache' under the same test: build failure with a source frame when nothing upstream defers
+the render, runtime-only failure carried as a digest when something does. The mechanism from
+probe 3 generalizes to probe 4 without any change -- it is not specific to cookies().
+
+### Probe 10 follow-up: does the mechanism generalize beyond cache-scope violations entirely? (10a/10b)
+Original probe 10 above used a scratch route with no dynamic API of its own -- in this
+session's a/b naming, that is "10a" (build failure). Probes 3 and 4 are both "forbidden API
+inside a cache scope" checks; probe 10 (a class instance crossing the client boundary) is a
+completely different kind of check -- a React serialization rule enforced at the client
+boundary, nothing to do with 'use cache'. Re-ran it in the same app/leak-a shape to see
+whether Suspense deferral affects checks outside the caching system too.
+
+**10b -- same violation (a class instance passed as a prop to a Client Component), called
+from a route already dynamic for an unrelated reason:**
+```
+app/scratch-s7-p10b/client-child.tsx:
+  'use client'
+  type WidgetLike = { name: string; getName?: () => string }
+  export default function ClientChild({ item }: { item: WidgetLike }) {
+    return <p data-name={item.name}>name={item.name}</p>
+  }
+app/scratch-s7-p10b/page.tsx:
+  import { Suspense } from 'react'
+  import { cookies } from 'next/headers'
+  import ClientChild from './client-child'
+
+  class Widget {
+    name: string
+    constructor(name: string) {
+      this.name = name
+    }
+    getName() {
+      return this.name
+    }
+  }
+
+  export default function Page() {
+    return (
+      <main>
+        <Suspense fallback={<p aria-busy="true">Loading…</p>}>
+          <Body />
+        </Suspense>
+      </main>
+    )
+  }
+
+  async function Body() {
+    const uid = (await cookies()).get('uid')?.value
+    void uid
+    const w = new Widget('probe-10b')
+    return <ClientChild item={w} />
+  }
+```
+build: PASS (exit 0) -- ships as Partial Prerender (/scratch-s7-p10b). No error text
+anywhere in the build output.
+runtime: curl -i -H 'Cookie: uid=user-alice' http://localhost:3019/scratch-s7-p10b ->
+```
+HTTP/1.1 200 OK
+x-nextjs-stale-time: 300
+x-nextjs-postponed: 1
+Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate
+Content-Type: text/html; charset=utf-8
+```
+Error surfaces inside the streamed RSC payload as a digest, HTTP status still 200:
+```
+18:E{"digest":"1168366908"}
+```
+No plaintext message reaches the client in this production build -- only the digest.
+(Compare 10a: caught at build with the full message, "Only plain objects, and a few
+built-ins, can be passed to Client Components from Server Components. Classes or null
+prototypes are not supported.")
+silent?: no -- loud once requested, but request-time-only.
+
+**Finding.** The Suspense-deferral mechanism is not specific to the caching system at all.
+A class-instance-across-the-boundary violation -- a React serialization check with nothing
+to do with 'use cache' -- defers exactly the same way cookies()/connection()-inside-'use
+cache' do, for the same reason: nothing inside a deferred Suspense boundary runs during the
+build's prerender attempt, so nothing inside it can fail during the build either, regardless
+of what kind of check would have caught it. Enforcement follows execution, and Suspense
+decides execution -- this generalizes across every check this session tested that fires
+during a render (3, 4, 10) and, by the same reasoning, should generalize to 7 and 9 too,
+which were not re-tested this way but are caught at the identical build step (see article 8's
+enforcement matrix for the untested-but-predicted framing).
