@@ -12,8 +12,10 @@
  *         absent in this environment.
  * 2. Same-repo, file exists
  *      -> Check the anchor; FAIL if the `#slug` is absent.
- * 3. Same-repo, file missing, but the path (as `concept_folder/article-id`)
- *    appears in `roadmap.md` §3's manifest of the 47 planned articles
+ * 3. Same-repo, file missing, but the path — as `concept_folder/article-id`
+ *    for a concept article, or `recipes/track/slug` for a recipe — appears
+ *    in `roadmap.md`'s manifest (§3's 47 planned articles, or §4's planned
+ *    recipes)
  *      -> WARN. Planned, unwritten — every article's "See also" points
  *         forward by design, and under a strict two-way policy CI would stay
  *         red for the life of the project.
@@ -22,8 +24,10 @@
  *         bucket that must reach zero; the roadmap is the only thing that can
  *         tell this case apart from case 3.
  *
- * roadmap.md §3 is parsed as the manifest, never hand-duplicated into a
- * second list here, so the two cannot drift apart.
+ * roadmap.md §3 and §4 are parsed as the manifest, never hand-duplicated
+ * into a second list here, so the two cannot drift apart. One parser reads
+ * both sections — §4's "Planned recipes" subsection uses §3's numbered-list
+ * shape on purpose, so no second code path is needed to recognize it.
  *
  * Reported in three buckets: cross-repo warns, planned-forward warns, and
  * hard failures (missing-and-unplanned files, plus missing anchors — an
@@ -58,13 +62,17 @@ const REPO_ROOT = path.resolve(
 );
 const ROADMAP_PATH = path.join(REPO_ROOT, "roadmap.md");
 const CONCEPTS_ROOT = path.join(REPO_ROOT, "docs", "concepts");
+const RECIPES_ROOT = path.join(REPO_ROOT, "docs", "recipes");
 
-// Matches only the start of a `roadmap.md` §3 list item, e.g.
-// "6. `caching/cache-components-model` — the thesis article." — anchored to
-// the line start so prose elsewhere in the same section (`next/dynamic`,
-// `next/font`, `@next/third-parties`, …) can never be mistaken for a planned
-// article path.
-const ROADMAP_ARTICLE_LINE = /^\d+\.\s+`([a-z][a-z0-9-]*\/[a-z][a-z0-9-]*)`/;
+// Matches only the start of a `roadmap.md` §3 or §4 list item, e.g.
+// "6. `caching/cache-components-model` — the thesis article." (§3, two
+// segments) or "2. `recipes/caching/user-a-sees-user-b-data` — …" (§4, three
+// segments) — anchored to the line start so prose elsewhere in the same
+// section (`next/dynamic`, `next/font`, `@next/third-parties`, …) can never
+// be mistaken for a planned path, and so §4's bold `**`caching/`**` track
+// bullets (no backtick immediately after "N. ") never match either.
+const ROADMAP_MANIFEST_LINE =
+  /^\d+\.\s+`([a-z][a-z0-9-]*(?:\/[a-z][a-z0-9-]*)+)`/;
 
 function isOutsideRepo(resolved) {
   const rel = path.relative(REPO_ROOT, resolved);
@@ -72,11 +80,15 @@ function isOutsideRepo(resolved) {
 }
 
 /**
- * Parse the 47-article manifest out of roadmap.md §3, keyed by
- * `concept_folder/article-id` — the same shape a resolved same-repo link
- * takes once made relative to `docs/concepts/`. Returns an empty set (with a
- * loud warning) if §3 can't be found or yields no entries, rather than
- * silently treating every forward link as an unplanned typo.
+ * Parse the planned-path manifest out of roadmap.md §3 (the 47 concept
+ * articles, keyed by `concept_folder/article-id`) and §4 (the "Planned
+ * recipes" subsection, keyed by `recipes/track/slug`) — the same shapes a
+ * resolved same-repo link takes once made relative to `docs/concepts/` or
+ * `docs/`, respectively. Both sections are read by the same line pattern;
+ * only the section-boundary tracking below decides which top-level heading
+ * a line falls under. Returns an empty set (with a loud warning) if neither
+ * section can be found or yields no entries, rather than silently treating
+ * every forward link as an unplanned typo.
  */
 function parseRoadmapManifest(roadmapPath) {
   const manifest = new Set();
@@ -88,38 +100,46 @@ function parseRoadmapManifest(roadmapPath) {
   }
   const text = fs.readFileSync(roadmapPath, "utf8");
   const lines = text.split(/\r?\n/);
-  let inSection3 = false;
+  let section = null;
   for (const line of lines) {
-    if (/^##\s+3\./.test(line)) {
-      inSection3 = true;
+    const heading = line.match(/^##\s+(\d+)\./);
+    if (heading) {
+      section = Number(heading[1]);
       continue;
     }
-    if (inSection3 && /^##\s+4\./.test(line)) break;
-    if (!inSection3) continue;
-    const m = line.match(ROADMAP_ARTICLE_LINE);
+    if (section !== 3 && section !== 4) continue;
+    const m = line.match(ROADMAP_MANIFEST_LINE);
     if (m) manifest.add(m[1]);
   }
   if (manifest.size === 0) {
     console.warn(
-      `verify-links: parsed 0 entries from ${path.relative(REPO_ROOT, roadmapPath)} §3; ` +
-        "planned-forward links will be reported as hard failures. If §3's format changed, " +
-        "update ROADMAP_ARTICLE_LINE in this script to match, or propose a format change to §3."
+      `verify-links: parsed 0 entries from ${path.relative(REPO_ROOT, roadmapPath)} §3/§4; ` +
+        "planned-forward links will be reported as hard failures. If either section's format " +
+        "changed, update ROADMAP_MANIFEST_LINE in this script to match, or propose a format " +
+        "change to §3/§4."
     );
   }
   return manifest;
 }
 
 /**
- * A same-repo, missing-file target is "planned" when its path — relative to
- * `docs/concepts/`, extension stripped — matches a manifest entry. Targets
- * outside `docs/concepts/` (e.g. `docs/recipes/…`) never match; §3 only
- * enumerates concept articles.
+ * A same-repo, missing-file target is "planned" when its path matches a
+ * manifest entry: relative to `docs/concepts/` (extension stripped) for a
+ * concept article, or relative to `docs/recipes/` with a `recipes/` prefix
+ * restored (extension stripped) for a recipe. Anything outside both roots
+ * never matches.
  */
 function roadmapKeyFor(resolved) {
   if (path.extname(resolved) !== ".md") return null;
-  const rel = path.relative(CONCEPTS_ROOT, resolved);
-  if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
-  return rel.slice(0, -".md".length).split(path.sep).join("/");
+  for (const [root, prefix] of [
+    [CONCEPTS_ROOT, ""],
+    [RECIPES_ROOT, "recipes/"],
+  ]) {
+    const rel = path.relative(root, resolved);
+    if (rel.startsWith("..") || path.isAbsolute(rel)) continue;
+    return prefix + rel.slice(0, -".md".length).split(path.sep).join("/");
+  }
+  return null;
 }
 
 function stripFences(text) {
@@ -232,7 +252,7 @@ function main() {
             } else {
               const roadmapKey = roadmapKeyFor(resolved);
               if (roadmapKey && manifest.has(roadmapKey)) {
-                plannedWarnings.push(`${msg} (planned, unwritten — roadmap.md §3: ${roadmapKey})`);
+                plannedWarnings.push(`${msg} (planned, unwritten — roadmap.md §3/§4: ${roadmapKey})`);
               } else {
                 failures.push(msg);
               }
