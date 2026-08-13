@@ -177,6 +177,14 @@ Symptom-first titles only. `caching/stale-dashboard-after-mutation`, never `cach
 8. **`migration/`** — upgrade-day symptoms.
 9. **`deployment/`** — self-hosted cache, cold starts.
 
+### Planned recipes
+
+Individual recipes, listed as they get specified — `recipes/<track>/<slug>`, matching a resolved same-repo link once made relative to `docs/`. Same numbered-list shape as §3's article manifest, so `verify-links.mjs` parses both sections with one parser instead of a second hardcoded list. Seeded with the three from §8; grows as later sessions specify more.
+
+1. `recipes/caching/everything-went-dynamic-after-the-upgrade` — upgraded to 16; a page that was static now renders per request. See §8.
+2. `recipes/caching/user-a-sees-user-b-data` — `data-uid` for alice returned under bob's cookie; the cross-user leak class. See §8.
+3. `recipes/mutations/action-succeeded-ui-didnt-update` — the write lands and the page still shows the old value. See §8.
+
 ---
 
 ## 5. Conventions
