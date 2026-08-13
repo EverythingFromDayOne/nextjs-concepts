@@ -17,7 +17,7 @@ status: draft
 
 > **Lead with this.** `'use client'` does not mean "runs on the client." It means **"this module is an entry point into the client module graph."** Two consequences follow, and between them they explain every rule in this article: the directive spreads through `import`, never through JSX children; and Client Components still render on the server, then hydrate. If you have been reading the directive as "make this interactive," swap in "add this module and everything it imports to the browser bundle" and most of the confusion evaporates.
 
-This is the article [`reactjs-concepts`](../../../reactjs-concepts/docs/roadmap.md) deferred when it fenced RSC as "coverage happens via Next.js App Router, since that's where RSC is actually usable in production." This is that coverage.
+This is the article [`reactjs-concepts`](../../../../reactjs-concepts/docs/roadmap.md) deferred when it fenced RSC as "coverage happens via Next.js App Router, since that's where RSC is actually usable in production." This is that coverage.
 
 ---
 
@@ -77,7 +77,7 @@ Three real consequences fall directly out of this representation:
 
 **Props are serialized into the payload on every render.** They are not a one-time hydration cost. Every navigation that re-renders that boundary re-serializes them. Passing an entire 400-row dataset into a Client Component to render a table means shipping that dataset in the payload each time — which is why "the page feels heavy and I don't know why" so often traces back to prop size rather than bundle size.
 
-**Serializability is not a style rule; it is a consequence of the wire format.** A prop must have a representation in the payload. Primitives, plain objects and arrays, `Date`, `Map`, `Set`, typed arrays, `FormData`, JSX elements, and Promises all do. A function does not — there is no way to send a closure. Class instances do not survive either: the fields might serialize, but the prototype and its methods will not, so what arrives is a shape that looks right and answers `undefined` to every method call.
+**Serializability is not a style rule; it is a consequence of the wire format.** A prop must have a representation in the payload. Primitives, plain objects and arrays, `Date`, `Map`, `Set`, typed arrays, `FormData`, JSX elements, and Promises all do. A function does not — there is no way to send a closure, and it is a build-time prerender error, not a silent gap. **Neither is a class instance** — this was measured directly (article 8's enforcement matrix, probe 10) after an earlier draft of this article guessed it would degrade silently into a plain-looking shape with `undefined` methods. It does not: it is caught at the same build step as a bare function, with `Error: Only plain objects, and a few built-ins, can be passed to Client Components from Server Components. Classes or null prototypes are not supported.` Map to a plain object before the boundary and the error disappears.
 
 **Server Functions are the single exception, and for a principled reason.** A `'use server'` function *does* have a wire representation: it is a reference to an addressable endpoint, exactly like a client reference is a reference to an addressable module. That is why the one kind of function that may cross the boundary is the one kind that is really an id in disguise.
 
@@ -439,7 +439,7 @@ Either the handler belongs inside the client component, or it is a Server Functi
 
 **5. Passing a component function where an element is expected.** `<Modal content={CartContents} />` sends a function; `<Modal content={<CartContents />} />` sends output. The error message points at serialization and the cause is composition.
 
-**6. Passing a class instance across the boundary.** An ORM model, a `Decimal`, a custom `Money` class — the fields may arrive and the methods will not. Map to a plain object at the boundary, deliberately.
+**6. Passing a class instance across the boundary.** An ORM model, a `Decimal`, a custom `Money` class — this is a build-time prerender error (`Classes or null prototypes are not supported`), not a silent gap where fields arrive and methods quietly answer `undefined`. Map to a plain object at the boundary, deliberately, or the build simply won't pass.
 
 **7. Shipping the dataset to render it.** If a Client Component receives an array only to `map` over it into non-interactive markup, the rows belong on the server behind a `children` slot.
 
@@ -485,7 +485,7 @@ Either the handler belongs inside the client component, or it is a Server Functi
 - [`performance/the-client-bundle`](../performance/the-client-bundle.md) — measuring the graph you just traced
 - [`mutations/server-functions`](../mutations/server-functions.md) — the other side of the boundary
 - [`routing/navigation-and-ui-state`](../routing/navigation-and-ui-state.md) — `<Activity>` and the state that no longer resets
-- [`reactjs-concepts` → `state/context`](../../../reactjs-concepts/docs/concepts/state/context.md) — what context is and isn't for, before you reach for a provider
+- [`reactjs-concepts` → `state/context`](../../../../reactjs-concepts/docs/concepts/state/context.md) — what context is and isn't for, before you reach for a provider
 
 ---
 

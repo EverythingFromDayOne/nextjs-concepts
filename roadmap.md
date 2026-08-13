@@ -76,7 +76,15 @@ Our response has two halves:
 
 `reactjs-concepts` §2 explicitly parked RSC: *"RSC coverage happens via Next.js App Router when we get there, since that's where RSC is actually usable in production."* **This repo pays that debt.** Articles 2, 5, and 15 are the settlement.
 
-Cross-repo links use `[text](../../reactjs-concepts/docs/concepts/<path>.md)` and are excluded from `verify-links.mjs` resolution when the sibling repo isn't checked out — the script warns rather than fails. *(invented — §7.5)*
+Cross-repo links use `[text](../../../../reactjs-concepts/docs/concepts/<path>.md)` — **four** `../`, not two — and are excluded from `verify-links.mjs` resolution when the sibling repo isn't checked out — the script warns rather than fails. *(invented — §7.5)*
+
+**Depth derivation**, so nobody recomputes it wrong a third time. From `docs/concepts/<folder>/`, escaping to a sibling repo climbs:
+
+```
+docs/concepts/foundations/  →  docs/concepts/  →  docs/  →  <repo root>  →  experimental-projects/
+```
+
+Four levels — `docs/concepts/<folder>/` is three directories below the repo root, and the sibling repo sits one directory above the repo root. Three `../` lands back inside this repo (a same-repo failure, not a cross-repo link); four `../` is the first level that actually escapes it.
 
 Deliberately **not** inherited from `reactjs-concepts`: hook-level teaching (`useState`, effects, keys, the Compiler-as-memoization story) and forms-at-scale. A reader arriving here is assumed to know React. Where a Next behavior depends on a React primitive, link sideways rather than re-teach.
 
@@ -100,7 +108,7 @@ Deliberately **not** inherited from `reactjs-concepts`: hook-level teaching (`us
 ### Wave 2 — Caching (the differentiator) (6)
 
 9. `caching/use-cache-directive` — file / component / function level; the async requirement; **what goes into a compiler-derived cache key** (build ID, serialized arguments, closure captures) and why that is the whole ballgame.
-10. `caching/cache-lifetimes` — `cacheLife`; the three clocks (`stale` / `revalidate` / `expire`); preset and custom profiles; overriding `default`; nesting propagation and the deliberate prerender error; the thresholds at which a lifetime removes content from the prerender entirely. **Note from demo:** the build table's route-level `Revalidate` / `Expire` columns can show the *longest* entry on the route (e.g. plans `1d/1w`) while a shorter entry on the same page still streams — do not read those columns as "the lifetime of this page."
+10. `caching/cache-lifetimes` — `cacheLife`; the three clocks (`stale` / `revalidate` / `expire`); preset and custom profiles; overriding `default`; nesting propagation and the deliberate prerender error; the thresholds at which a lifetime removes content from the prerender entirely. **Note from demo, resolved in session 7 §3:** the build table's route-level `Revalidate` / `Expire` columns track the **shortest lifetime among the `'use cache'` entries actually evaluated during that route's build-time prerender pass** — not the shortest entry on the page overall, and not the longest. An entry whose lifetime is too short to be safely prerendered drops out of that evaluation entirely (see the thresholds above), which is why the column can show a *longer* number while a shorter-lived panel still streams: the short one was excluded from the prerender pass, not merely absent from the visible shell. Confirmed by adding a second, shorter-lived cached call to `/streaming-coarse` (whose sole existing entry had separately been measured as absent from that route's rendered shell): the column moved from `1h 1d` to `1m 1h`, tracking the new shortest evaluated entry regardless of shell membership. Do not read these columns as "the lifetime of this page."
 11. `caching/tags-and-invalidation` — `cacheTag`; `updateTag` (read-your-own-writes, Server Actions only) vs `revalidateTag(tag, profile)` (stale-while-revalidate, profile required) vs `revalidatePath`. Decision table.
 12. `caching/private-and-remote-caches` — the three directives compared; `'use cache: remote'` (durable, network round-trip, platform fees) and `'use cache: private'` (**experimental**, browser-memory only, `connection()` prohibited). The cross-user leak as the motivating failure.
 13. `caching/composition-and-cache-boundaries` — `children` and slots pass *through* a cached component without being cached; hoisting uncached work above a cached boundary; where the boundary should sit and why the instinct to put it at the page is usually wrong.
@@ -226,6 +234,8 @@ each `file:line — reason`.
 Articles are authored as `.md.tpl` with `{EXTRACT:}` tokens and delivered alongside their demo sources. The `.md` is a build artifact and is never edited by hand. **`.tpl`-native is the standard from article 5 onward** (and for 3, 4, 7, 8+). Articles 1 and 2 remain conversion debt: 1 should be cheap (demos exist); 2 is blocked on a real payload measurement across the stage-2 boundary before convert. The `unsourced-other` count in `verify-code-blocks` should fall toward zero and never grow.
 
 Prose is authored in `<article>.md.tpl`. **Code never is.** Templates carry `{EXTRACT:<path>#<symbol>}` tokens; `scripts/build-article.py` resolves them into a provenance comment plus a fenced block; `scripts/verify-code-blocks.mjs` re-extracts and compares. Extraction logic lives in exactly one place — `scripts/lib/extract.mjs` — so the builder and verifier cannot disagree. Symbol extracts include the import statements the region actually uses; `#<symbol>-imports` opts out for deliberate fragments.
+
+**A template ships in `prompts/<session>/`, not `docs/`, until its demos exist.** `verify:templates` (`build-article.py --check --all`) only scans `.md.tpl` files under `docs/`, so a template whose `{EXTRACT:}` tokens point at demo files a session hasn't written yet breaks the gate for everyone the moment it lands — that happened with article 8's template. The session that authors the template keeps it in `prompts/<session>/` alongside its own prompt, writes the demos, and **moves** the template into its final `docs/concepts/<folder>/` location as the session's last step, once every extract target resolves. An in-flight template never breaks the chain because the gate never sees it.
 
 **Demo sources are article content** — written for extraction, not trimmed afterward. **Observations are batched**: when an article needs recorded output, the demo delivery names every capture command up front so they run in one pass.
 

@@ -78,16 +78,18 @@ The route-level **Revalidate/Expire** column now has three observations that don
 
 ## 4. Template
 
-`docs/concepts/foundations/rules-of-the-server-boundary.md.tpl` ships alongside. It contains an enforcement-matrix table with `{ENFORCEMENT_MATRIX}` as a **prose placeholder** — the builder will refuse to build until it is filled from your measurements. That is deliberate: the table is the article, and it must not be authored by me.
+`prompts/session7/rules-of-the-server-boundary.md.tpl` ships alongside — in `prompts/session7/`, not `docs/`, per the new staging convention (roadmap §5, "The extraction pipeline"): a template whose `{EXTRACT:}` tokens point at demos that don't exist yet stays out of `docs/` so it can't break `verify:templates` for anyone else while this session is in flight. It contains an enforcement-matrix table with `{ENFORCEMENT_MATRIX}` as a **prose placeholder** — the builder will refuse to build until it is filled from your measurements. That is deliberate: the table is the article, and it must not be authored by me.
 
-Fill it from `observations/enforcement-matrix.txt`, then:
+Fill it from `observations/enforcement-matrix.txt`, then, as the session's **final step**, move the template into its real location and build it there:
 
 ```bash
+mkdir -p docs/concepts/foundations
+git mv prompts/session7/rules-of-the-server-boundary.md.tpl docs/concepts/foundations/rules-of-the-server-boundary.md.tpl
 python3 scripts/build-article.py docs/concepts/foundations/rules-of-the-server-boundary.md.tpl
 pnpm verify
 ```
 
-Ships at `status: draft` until the matrix is complete.
+Do not build or verify it in place under `prompts/session7/` — the gate only scans `docs/`, so nothing checks it there, and the move is the step that turns it into a real article. Ships at `status: draft` until the matrix is complete.
 
 ## 5. Housekeeping — fold in, don't spend a session on it
 

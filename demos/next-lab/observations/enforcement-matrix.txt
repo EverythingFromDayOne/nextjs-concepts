@@ -1,0 +1,545 @@
+# produced: 2026-08-10; next@16.3.0; command: eleven probes, one at a time: add -> pnpm build -> capture -> (if built) pnpm start + curl -> capture -> remove
+### Probe 1: 'use cache' on a non-async function
+where: lib/_scratch-p1.ts (new scratch lib) + app/scratch-s7-p1/page.tsx
+build: FAIL (exit 1)
+build error (first line): Error: Turbopack build failed with 1 error:
+runtime: not applicable — build must pass before request-time behavior can be observed
+silent?: n/a — caught at build
+full extract:
+  Creating an optimized production build ...
+ ELIFECYCLE  Command failed with exit code 1.
+
+> Build error occurred
+Error: Turbopack build failed with 1 error:
+./demos/next-lab/lib/_scratch-p1.ts:1:17
+Error: "use cache" functions must be async functions.
+[31m[1m>[0m [90m1 |[0m [36mexport[0m [36mfunction[0m getNonAsync() {
+  [90m  |[0m                 [31m[1m^^^^^^^^^^^[0m
+  [90m2 |[0m   [32m'use cache'[0m
+  [90m3 |[0m   [36mreturn[0m [35m42[0m
+  [90m4 |[0m }
+
+---
+> Build error occurred
+Error: Turbopack build failed with 1 error:
+./demos/next-lab/lib/_scratch-p1.ts:1:17
+Error: "use cache" functions must be async functions.
+[31m[1m>[0m [90m1 |[0m [36mexport[0m [36mfunction[0m getNonAsync() {
+  [90m  |[0m                 [31m[1m^^^^^^^^^^^[0m
+  [90m2 |[0m   [32m'use cache'[0m
+  [90m3 |[0m   [36mreturn[0m [35m42[0m
+  [90m4 |[0m }
+
+Ecmascript file had an error
+
+Import trace:
+---
+./demos/next-lab/lib/_scratch-p1.ts:1:17
+Error: "use cache" functions must be async functions.
+[31m[1m>[0m [90m1 |[0m [36mexport[0m [36mfunction[0m getNonAsync() {
+  [90m  |[0m                 [31m[1m^^^^^^^^^^^[0m
+  [90m2 |[0m   [32m'use cache'[0m
+  [90m3 |[0m   [36mreturn[0m [35m42[0m
+  [90m4 |[0m }
+
+Ecmascript file had an error
+
+Import trace:
+  Server Component:
+    ./demos/next-lab/lib/_scratch-p1.ts
+### Probe 2: cacheLife() called at module scope
+where: lib/_scratch-p2.ts (new scratch lib) + app/scratch-s7-p2/page.tsx
+build: FAIL (exit 1)
+build error (first line): Error: Failed to collect configuration for /scratch-s7-p2
+runtime: not applicable — build must pass before request-time behavior can be observed
+silent?: n/a — caught at build
+full extract:
+  Collecting page data using 3 workers ...
+ ELIFECYCLE  Command failed with exit code 1.
+Error: Failed to collect configuration for /scratch-s7-p2
+    at ignore-listed frames {
+  [cause]: Error: `cacheLife()` can only be called inside a "use cache" function.
+      at module evaluation (lib/_scratch-p2.ts:4:1)
+      at module evaluation (app/scratch-s7-p2/page.tsx:1:1)
+      at module evaluation (app/scratch-s7-p2/page.tsx:6:1)
+    2 |
+    3 | // module scope — not inside a 'use cache' function
+  > 4 | cacheLife('minutes')
+      | ^
+    5 |
+---
+ ELIFECYCLE  Command failed with exit code 1.
+Error: Failed to collect configuration for /scratch-s7-p2
+    at ignore-listed frames {
+  [cause]: Error: `cacheLife()` can only be called inside a "use cache" function.
+      at module evaluation (lib/_scratch-p2.ts:4:1)
+      at module evaluation (app/scratch-s7-p2/page.tsx:1:1)
+      at module evaluation (app/scratch-s7-p2/page.tsx:6:1)
+    2 |
+    3 | // module scope — not inside a 'use cache' function
+  > 4 | cacheLife('minutes')
+      | ^
+    5 |
+    6 | export async function getSomething() {
+---
+    at ignore-listed frames {
+  [cause]: Error: `cacheLife()` can only be called inside a "use cache" function.
+      at module evaluation (lib/_scratch-p2.ts:4:1)
+      at module evaluation (app/scratch-s7-p2/page.tsx:1:1)
+      at module evaluation (app/scratch-s7-p2/page.tsx:6:1)
+    2 |
+    3 | // module scope — not inside a 'use cache' function
+  > 4 | cacheLife('minutes')
+      | ^
+    5 |
+    6 | export async function getSomething() {
+    7 |   'use cache'
+}
+---
+> Build error occurred
+Error: Failed to collect page data for /scratch-s7-p2
+    at ignore-listed frames {
+  type: 'Error'
+}
+
+### Probe 3: cookies() inside a cached scope (reuse lib/billing-leak-a.ts + app/leak-a — reconfirm only)
+where: lib/billing-leak-a.ts (existing, permanent) + app/leak-a (existing, permanent)
+build: PASS (exit 0)
+runtime: curl /leak-a with Cookie uid=user-alice -> <!DOCTYPE html><html lang="en" class="geist_a71539c9-module__T19VSG__variable geist_mono_8d43a2aa-module__8Li5zG__variable h-full antialiased"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="stylesheet" href="/_next/static/chunks/3swt9y62alez3.css" data-precedence="next"/><link rel="preload" as="script" fetchPriority="low" href="/_next/s
+silent?: n/a — caught at runtime (route is dynamic, so it passes build and fails under next start)
+### Probe 4: connection() inside a cached scope
+where: lib/_scratch-p4.ts (new scratch lib) + app/scratch-s7-p4/page.tsx
+build: FAIL (exit 1)
+build error (first line): ⨯ Error: Route /scratch-s7-p4 used `connection()` inside "use cache". The `connection()` function is used to indicate the subsequent code must only run when there is an actual request, but caches must be able to be produced before a request, so this function is not allowed in this scope. See more info here: https://nextjs.org/docs/messages/next-request-in-use-cache
+runtime: not applicable — build must pass before request-time behavior can be observed
+silent?: n/a — caught at build
+full extract:
+  Generating static pages using 3 workers (5/20) 
+ ELIFECYCLE  Command failed with exit code 1.
+⨯ Error: Route /scratch-s7-p4 used `connection()` inside "use cache". The `connection()` function is used to indicate the subsequent code must only run when there is an actual request, but caches must be able to be produced before a request, so this function is not allowed in this scope. See more info here: https://nextjs.org/docs/messages/next-request-in-use-cache
+    at g (lib/_scratch-p4.ts:7:9)
+   5 |   'use cache'
+   6 |   cacheLife('minutes')
+>  7 |   await connection()
+     |         ^
+   8 |   return 'x'
+   9 | }
+  10 | {
+  digest: '1844425504@E841'
+}
+---
+ ELIFECYCLE  Command failed with exit code 1.
+⨯ Error: Route /scratch-s7-p4 used `connection()` inside "use cache". The `connection()` function is used to indicate the subsequent code must only run when there is an actual request, but caches must be able to be produced before a request, so this function is not allowed in this scope. See more info here: https://nextjs.org/docs/messages/next-request-in-use-cache
+    at g (lib/_scratch-p4.ts:7:9)
+   5 |   'use cache'
+   6 |   cacheLife('minutes')
+>  7 |   await connection()
+     |         ^
+   8 |   return 'x'
+   9 | }
+  10 | {
+  digest: '1844425504@E841'
+}
+Error: Route /scratch-s7-p4 used `connection()` inside "use cache". The `connection()` function is used to indicate the subsequent code must only run when there is an actual request, but caches must be able to be produced before a request, so this function is not allowed in this scope. See more info here: https://nextjs.org/docs/messages/next-request-in-use-cache
+---
+}
+Error: Route /scratch-s7-p4 used `connection()` inside "use cache". The `connection()` function is used to indicate the subsequent code must only run when there is an actual request, but caches must be able to be produced before a request, so this function is not allowed in this scope. See more info here: https://nextjs.org/docs/messages/next-request-in-use-cache
+    at g (lib/_scratch-p4.ts:7:9)
+   5 |   'use cache'
+   6 |   cacheLife('minutes')
+>  7 |   await connection()
+     |         ^
+   8 |   return 'x'
+   9 | }
+  10 | {
+  digest: '1844425504@E841'
+}
+To get a more detailed stack trace and pinpoint the issue, try one of the following:
+---
+Error occurred prerendering page "/scratch-s7-p4". Read more: https://nextjs.org/docs/messages/prerender-error
+Export encountered an error on /scratch-s7-p4/page: /scratch-s7-p4, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+---
+Export encountered an error on /scratch-s7-p4/page: /scratch-s7-p4, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+### Probe 5: new Date() inside a cached scope (reuse lib/stamped.ts — reconfirm only)
+where: lib/stamped.ts (existing, permanent) + app/scratch-s7-p5/page.tsx (scratch route)
+build: PASS (exit 0)
+runtime: request1 at=2026-08-10T18:09:24.370Z; request2 (2s later) at=2026-08-10T18:09:24.370Z; frozen=true
+silent?: yes — silent: builds and runs cleanly; the timestamp freezes at cache-entry creation and nothing in the response marks it as stale
+### Probe 6: useState in a Server Component
+where: app/scratch-s7-p6/page.tsx (scratch route, no "use client")
+build: FAIL (exit 1)
+build error (first line): Error: Turbopack build failed with 1 error:
+runtime: not applicable — build must pass before request-time behavior can be observed
+silent?: n/a — caught at build
+full extract:
+  Creating an optimized production build ...
+ ELIFECYCLE  Command failed with exit code 1.
+
+> Build error occurred
+Error: Turbopack build failed with 1 error:
+./demos/next-lab/app/scratch-s7-p6/page.tsx:1:10
+Error: You're importing a module that depends on `useState` into a React Server Component module. This API is only available in Client Components. To fix, mark the file (or its parent) with the `"use client"` directive.
+    Learn more: https://nextjs.org/docs/app/api-reference/directives/use-client
+[31m[1m>[0m [90m1 |[0m [36mimport[0m { useState } [36mfrom[0m [32m'react'[0m
+  [90m  |[0m          [31m[1m^^^^^^^^[0m
+  [90m2 |[0m
+  [90m3 |[0m [36mexport[0m [36mdefault[0m [36mfunction[0m [33mPage[0m() {
+  [90m4 |[0m   [36mconst[0m [count] = useState([35m0[0m)
+---
+> Build error occurred
+Error: Turbopack build failed with 1 error:
+./demos/next-lab/app/scratch-s7-p6/page.tsx:1:10
+Error: You're importing a module that depends on `useState` into a React Server Component module. This API is only available in Client Components. To fix, mark the file (or its parent) with the `"use client"` directive.
+    Learn more: https://nextjs.org/docs/app/api-reference/directives/use-client
+[31m[1m>[0m [90m1 |[0m [36mimport[0m { useState } [36mfrom[0m [32m'react'[0m
+  [90m  |[0m          [31m[1m^^^^^^^^[0m
+  [90m2 |[0m
+  [90m3 |[0m [36mexport[0m [36mdefault[0m [36mfunction[0m [33mPage[0m() {
+  [90m4 |[0m   [36mconst[0m [count] = useState([35m0[0m)
+
+Ecmascript file had an error
+
+---
+./demos/next-lab/app/scratch-s7-p6/page.tsx:1:10
+Error: You're importing a module that depends on `useState` into a React Server Component module. This API is only available in Client Components. To fix, mark the file (or its parent) with the `"use client"` directive.
+    Learn more: https://nextjs.org/docs/app/api-reference/directives/use-client
+[31m[1m>[0m [90m1 |[0m [36mimport[0m { useState } [36mfrom[0m [32m'react'[0m
+  [90m  |[0m          [31m[1m^^^^^^^^[0m
+  [90m2 |[0m
+  [90m3 |[0m [36mexport[0m [36mdefault[0m [36mfunction[0m [33mPage[0m() {
+  [90m4 |[0m   [36mconst[0m [count] = useState([35m0[0m)
+
+Ecmascript file had an error
+
+
+    at <unknown> (./demos/next-lab/app/scratch-s7-p6/page.tsx:1:10)
+### Probe 7: onClick handler on an element in a Server Component
+where: app/scratch-s7-p7/page.tsx (scratch route, no "use client")
+build: FAIL (exit 1)
+build error (first line): Error: Event handlers cannot be passed to Client Component props.
+runtime: not applicable — build must pass before request-time behavior can be observed
+silent?: n/a — caught at build
+full extract:
+  Generating static pages using 3 workers (5/20) 
+ ELIFECYCLE  Command failed with exit code 1.
+Error occurred prerendering page "/scratch-s7-p7". Read more: https://nextjs.org/docs/messages/prerender-error
+Error: Event handlers cannot be passed to Client Component props.
+  {onClick: function onClick, children: ...}
+            ^^^^^^^^^^^^^^^^
+If you need interactivity, consider converting part of this to a Client Component.
+    at ignore-listed frames {
+  digest: '906334117'
+}
+Export encountered an error on /scratch-s7-p7/page: /scratch-s7-p7, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+---
+Error occurred prerendering page "/scratch-s7-p7". Read more: https://nextjs.org/docs/messages/prerender-error
+Error: Event handlers cannot be passed to Client Component props.
+  {onClick: function onClick, children: ...}
+            ^^^^^^^^^^^^^^^^
+If you need interactivity, consider converting part of this to a Client Component.
+    at ignore-listed frames {
+  digest: '906334117'
+}
+Export encountered an error on /scratch-s7-p7/page: /scratch-s7-p7, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+---
+}
+Export encountered an error on /scratch-s7-p7/page: /scratch-s7-p7, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+---
+Export encountered an error on /scratch-s7-p7/page: /scratch-s7-p7, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+### Probe 8: Server Component imported into a Client Component
+where: app/scratch-s7-p8/{server-part.tsx,client-wrapper.tsx,page.tsx} (scratch pair)
+build: FAIL (exit 1)
+build error (first line): Error: Route "/scratch-s7-p8": Next.js encountered uncached or runtime data during prerendering.
+runtime: not applicable — build must pass before request-time behavior can be observed
+silent?: n/a — caught at build
+full extract:
+  Generating static pages using 3 workers (5/20) 
+ ELIFECYCLE  Command failed with exit code 1.
+Error: Route "/scratch-s7-p8": Next.js encountered uncached or runtime data during prerendering.
+
+`fetch(...)`, `cookies()`, `headers()`, `params`, `searchParams`, or `connection()` accessed outside of `<Suspense>` prevents the route from being prerendered, blocking the page load and leading to a slower user experience.
+
+Ways to fix this:
+  - [stream] Provide a placeholder with `<Suspense fallback={...}>` around the data access
+  - [cache] For uncached data (`fetch`, database calls): cache the access with `"use cache"` (does not apply to `connection()`)
+  - [block] Set `export const instant = false` to allow a blocking route
+
+Learn more: https://nextjs.org/docs/messages/blocking-prerender-dynamic
+    at d (<anonymous>)
+---
+ ELIFECYCLE  Command failed with exit code 1.
+Error: Route "/scratch-s7-p8": Next.js encountered uncached or runtime data during prerendering.
+
+`fetch(...)`, `cookies()`, `headers()`, `params`, `searchParams`, or `connection()` accessed outside of `<Suspense>` prevents the route from being prerendered, blocking the page load and leading to a slower user experience.
+
+Ways to fix this:
+  - [stream] Provide a placeholder with `<Suspense fallback={...}>` around the data access
+  - [cache] For uncached data (`fetch`, database calls): cache the access with `"use cache"` (does not apply to `connection()`)
+  - [block] Set `export const instant = false` to allow a blocking route
+
+Learn more: https://nextjs.org/docs/messages/blocking-prerender-dynamic
+    at d (<anonymous>)
+    at div (<anonymous>)
+---
+Error occurred prerendering page "/scratch-s7-p8". Read more: https://nextjs.org/docs/messages/prerender-error
+Export encountered an error on /scratch-s7-p8/page: /scratch-s7-p8, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+---
+Export encountered an error on /scratch-s7-p8/page: /scratch-s7-p8, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+### Probe 9: a function passed as a prop across the client boundary
+where: app/scratch-s7-p9/{client-child.tsx,page.tsx} (scratch pair)
+build: FAIL (exit 1)
+build error (first line): Error: Event handlers cannot be passed to Client Component props.
+runtime: not run — build failed
+silent?: n/a — caught at build
+full extract:
+  Generating static pages using 3 workers (5/20) 
+ ELIFECYCLE  Command failed with exit code 1.
+Error occurred prerendering page "/scratch-s7-p9". Read more: https://nextjs.org/docs/messages/prerender-error
+Error: Event handlers cannot be passed to Client Component props.
+  {onClick: function onClick}
+            ^^^^^^^^^^^^^^^^
+If you need interactivity, consider converting part of this to a Client Component.
+    at ignore-listed frames {
+  digest: '873200645'
+}
+Export encountered an error on /scratch-s7-p9/page: /scratch-s7-p9, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+---
+Error occurred prerendering page "/scratch-s7-p9". Read more: https://nextjs.org/docs/messages/prerender-error
+Error: Event handlers cannot be passed to Client Component props.
+  {onClick: function onClick}
+            ^^^^^^^^^^^^^^^^
+If you need interactivity, consider converting part of this to a Client Component.
+    at ignore-listed frames {
+  digest: '873200645'
+}
+Export encountered an error on /scratch-s7-p9/page: /scratch-s7-p9, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+---
+}
+Export encountered an error on /scratch-s7-p9/page: /scratch-s7-p9, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+---
+Export encountered an error on /scratch-s7-p9/page: /scratch-s7-p9, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+### Probe 9 follow-up: does the message change if the prop isn't named like a DOM event handler?
+Probe 9 above used a prop literally named `onClick`, which React/Next special-case: any
+prop matching the `on*` event-handler naming convention gets the more specific
+"Event handlers cannot be passed to Client Component props." error before the generic
+function-serialization check ever runs. Re-ran with the same function passed under a
+non-event-handler name (`doThing` instead of `onClick`) to see the *generic* case:
+
+```
+app/scratch-s7-p9b/client-child.tsx:
+  'use client'
+  export default function ClientChild({ doThing }: { doThing: () => void }) {
+    return <p data-typeof={typeof doThing}>doThing is {typeof doThing}</p>
+  }
+app/scratch-s7-p9b/page.tsx:
+  import ClientChild from './client-child'
+  export default function Page() {
+    const handler = () => { console.log('never actually callable from the client') }
+    return <ClientChild doThing={handler} />
+  }
+```
+
+build: FAIL (exit 1)
+build error (first line): Error: Functions cannot be passed directly to Client Components unless you explicitly expose it by marking it with "use server". Or maybe you meant to call this function rather than return it.
+full extract:
+```
+Error occurred prerendering page "/scratch-s7-p9b". Read more: https://nextjs.org/docs/messages/prerender-error
+Error: Functions cannot be passed directly to Client Components unless you explicitly expose it by marking it with "use server". Or maybe you meant to call this function rather than return it.
+  {doThing: function doThing}
+            ^^^^^^^^^^^^^^^^
+    at ignore-listed frames {
+  digest: '2280932847'
+}
+Export encountered an error on /scratch-s7-p9b/page: /scratch-s7-p9b, exiting the build.
+```
+**Finding:** both are hard build failures (same enforcement class), but the *message* depends on
+the prop's name, not just its type � an `on*`-named prop gets the DOM-event-handler-specific
+message, anything else gets the generic function-serialization message. An article citing this
+error should show the generic message, since most real-world function props are not literally
+named like DOM events.
+
+### Probe 8 follow-up: the "Server Component imported into a Client Component" claim is more nuanced than a single verdict
+The original probe 8 (async component doing an uncached `db` call, imported into a Client
+Component) failed at build � but the error it hit (`blocking-prerender-dynamic`, "Next.js
+encountered uncached or runtime data during prerendering") is the **same generic error any
+uncached-fetch-outside-Suspense route gets**, unrelated to crossing the client boundary. That
+result alone doesn't establish that importing a Server Component into a Client Component is
+itself rejected. Ran two more variants to isolate the actual rule:
+
+**8b � a component with no directive and no server-only API, pure sync JSX, imported into a
+Client Component:**
+```
+app/scratch-s7-p8b/server-part-sync.tsx (no directive):
+  export default function ServerPartSync() {
+    return <p>plain sync component, no directive, no server-only import</p>
+  }
+app/scratch-s7-p8b/client-wrapper-sync.tsx:
+  'use client'
+  import ServerPartSync from './server-part-sync'
+  export default function ClientWrapperSync() {
+    return <div><ServerPartSync /></div>
+  }
+```
+build: **PASS** (exit 0) � route shipped as `? /scratch-s7-p8b` (fully static).
+Rendered HTML contains the component's output: `plain sync component, no directive, no server-only import`.
+`page_client-reference-manifest.js` lists only `client-wrapper-sync.tsx` as a client module �
+`server-part-sync.tsx` is **not** a separate entry; its code was silently inlined into the
+client bundle. **Nothing failed. Nothing warned.** A component with no server-only content is
+not "a Server Component" in any way the compiler can detect or enforce once it's reached from
+a Client Component's import graph � it's just a function, and it runs wherever its importer runs.
+
+**8c � a component using a genuinely server-only Node API (`next/headers`), imported into a
+Client Component:**
+```
+app/scratch-s7-p8c/server-part-headers.tsx (no directive):
+  import { headers } from 'next/headers'
+  export default async function ServerPartHeaders() {
+    const h = await headers()
+    return <p>{h.get('user-agent')}</p>
+  }
+app/scratch-s7-p8c/client-wrapper-headers.tsx:
+  'use client'
+  import ServerPartHeaders from './server-part-headers'
+  export default function ClientWrapperHeaders() {
+    return <div><ServerPartHeaders /></div>
+  }
+```
+build: FAIL (exit 1)
+build error (first line): Error: Turbopack build failed with 1 error:
+full extract:
+```
+./demos/next-lab/app/scratch-s7-p8c/server-part-headers.tsx:1:1
+Error: You're importing a module that depends on "next/headers" into a React Client Component module. This API is only available in Server Components but one of its parents is marked with "use client", so this module is also a Client Component.
+    Learn more: https://nextjs.org/docs/app/building-your-application/rendering
+Import traces:
+  Client Component Browser:
+    ./demos/next-lab/app/scratch-s7-p8c/server-part-headers.tsx [Client Component Browser]
+    ./demos/next-lab/app/scratch-s7-p8c/client-wrapper-headers.tsx [Client Component Browser]
+    ./demos/next-lab/app/scratch-s7-p8c/client-wrapper-headers.tsx [Server Component]
+    ./demos/next-lab/app/scratch-s7-p8c/page.tsx [Server Component]
+```
+**CONTRADICTS THE ARTICLE'S FRAMING.** `foundations/server-and-client-components` and this
+article's own "four scopes" table both state flatly that a Server Component "may not be
+imported by a Client Component." That's not what's enforced. What actually happens: importing
+a directive-less module from a Client Component **silently reclassifies that module as a
+Client Component too** (see 8b � no error, no warning, it just runs on the client from then
+on). The build only fails if that now-reclassified module then uses an API the client bundle
+genuinely cannot satisfy (`next/headers`, `next/cookies`, `fs`, etc. � 8c), or if it does
+uncached-and-unsuspended data access, which fails for the ordinary blocking-prerender reason
+(the original probe 8) and would fail identically outside a Client Component too. There is no
+enforcement point that says "a Server Component may not be imported into a Client Component" �
+there is only "a module that ends up in the client bundle may not use server-only APIs," which
+is the same rule that already governs every other client-bundle import. Both existing
+articles' phrasing should be corrected to describe reclassification, not rejection.
+
+### Probe 10: a class instance passed as a prop across the boundary — PROBE 10, the load-bearing one
+where: app/scratch-s7-p10/{client-child.tsx,page.tsx} (scratch pair)
+build: FAIL (exit 1)
+build error (first line): Error: Only plain objects, and a few built-ins, can be passed to Client Components from Server Components. Classes or null prototypes are not supported.
+runtime: not run — build failed
+silent?: n/a — caught at build
+full extract:
+  Generating static pages using 3 workers (5/20) 
+ ELIFECYCLE  Command failed with exit code 1.
+Error occurred prerendering page "/scratch-s7-p10". Read more: https://nextjs.org/docs/messages/prerender-error
+Error: Only plain objects, and a few built-ins, can be passed to Client Components from Server Components. Classes or null prototypes are not supported.
+  {item: {name: ...}}
+         ^^^^^^^^^^^
+    at ignore-listed frames {
+  digest: '2839188000'
+}
+Export encountered an error on /scratch-s7-p10/page: /scratch-s7-p10, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+---
+Error occurred prerendering page "/scratch-s7-p10". Read more: https://nextjs.org/docs/messages/prerender-error
+Error: Only plain objects, and a few built-ins, can be passed to Client Components from Server Components. Classes or null prototypes are not supported.
+  {item: {name: ...}}
+         ^^^^^^^^^^^
+    at ignore-listed frames {
+  digest: '2839188000'
+}
+Export encountered an error on /scratch-s7-p10/page: /scratch-s7-p10, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+---
+}
+Export encountered an error on /scratch-s7-p10/page: /scratch-s7-p10, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+---
+Export encountered an error on /scratch-s7-p10/page: /scratch-s7-p10, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+
+### Probe 11: a non-async export in a 'use server' file
+where: app/scratch-s7-p11/{actions.ts,page.tsx} (scratch pair)
+build: FAIL (exit 1)
+build error (first line): Error: Turbopack build failed with 1 error:
+runtime: not applicable — build must pass before request-time behavior can be observed
+silent?: n/a — caught at build
+full extract:
+  Creating an optimized production build ...
+ ELIFECYCLE  Command failed with exit code 1.
+
+> Build error occurred
+Error: Turbopack build failed with 1 error:
+./demos/next-lab/app/scratch-s7-p11/actions.ts:3:17
+Error: Server Actions must be async functions.
+  [90m1 |[0m [32m'use server'[0m
+  [90m2 |[0m
+[31m[1m>[0m [90m3 |[0m [36mexport[0m [36mfunction[0m nonAsyncAction() {
+  [90m  |[0m                 [31m[1m^^^^^^^^^^^^^^[0m
+  [90m4 |[0m   [36mreturn[0m [32m'x'[0m
+  [90m5 |[0m }
+---
+> Build error occurred
+Error: Turbopack build failed with 1 error:
+./demos/next-lab/app/scratch-s7-p11/actions.ts:3:17
+Error: Server Actions must be async functions.
+  [90m1 |[0m [32m'use server'[0m
+  [90m2 |[0m
+[31m[1m>[0m [90m3 |[0m [36mexport[0m [36mfunction[0m nonAsyncAction() {
+  [90m  |[0m                 [31m[1m^^^^^^^^^^^^^^[0m
+  [90m4 |[0m   [36mreturn[0m [32m'x'[0m
+  [90m5 |[0m }
+  [90m6 |[0m
+
+Ecmascript file had an error
+---
+./demos/next-lab/app/scratch-s7-p11/actions.ts:3:17
+Error: Server Actions must be async functions.
+  [90m1 |[0m [32m'use server'[0m
+  [90m2 |[0m
+[31m[1m>[0m [90m3 |[0m [36mexport[0m [36mfunction[0m nonAsyncAction() {
+  [90m  |[0m                 [31m[1m^^^^^^^^^^^^^^[0m
+  [90m4 |[0m   [36mreturn[0m [32m'x'[0m
+  [90m5 |[0m }
+  [90m6 |[0m
+
+Ecmascript file had an error
+
+Import trace:

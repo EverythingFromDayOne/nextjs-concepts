@@ -123,31 +123,170 @@ Every row below was produced by writing the violation, building, and — where i
 
 ## Walkthrough — the four scopes, correct
 
-{EXTRACT:demos/next-lab/lib/billing.ts#getUsage}
+<!-- extract: demos/next-lab/lib/billing.ts#getUsage -->
+```ts
+import { cacheLife, cacheTag } from 'next/cache'
+import { db } from './db'
+
+// uid is an ARGUMENT. It is therefore in the compiler-derived key, which
+// is the entire difference between a per-user entry and a shared one.
+export async function getUsage(uid: string) {
+  'use cache'
+  cacheLife('minutes')
+  cacheTag(`usage:${uid}`)
+  return db.usage.forUser(uid)
+}
+```
 
 Cached: async, identity taken as an argument, lifetime and tag declared.
 
-{EXTRACT:demos/next-lab/app/dashboard/page.tsx}
+<!-- extract: demos/next-lab/app/dashboard/page.tsx -->
+```tsx
+import { Suspense } from 'react'
+import { cookies } from 'next/headers'
+import { connection } from 'next/server'
+import { getPlans, getUsage } from '@/lib/billing'
+import { getAlerts } from '@/lib/status'
+import {
+  PlanTable, UsageChart, AlertBanner, PlanTableSkeleton, UsageSkeleton,
+} from './parts'
+
+export default function DashboardPage() {
+  return (
+    <main>
+      <Suspense fallback={<PlanTableSkeleton />}><Plans /></Suspense>
+      <Suspense fallback={<UsageSkeleton />}><Usage /></Suspense>
+      <Suspense fallback={null}><Alerts /></Suspense>
+      <Suspense fallback={null}><LastRefreshed /></Suspense>
+    </main>
+  )
+}
+
+async function Plans() {
+  return <PlanTable plans={await getPlans()} />
+}
+
+async function Usage() {
+  // Runtime read, outside the cached scope. The value is passed in.
+  const uid = (await cookies()).get('uid')?.value
+  if (!uid) return <p>Sign in to see usage.</p>
+  return <UsageChart usage={await getUsage(uid)} />
+}
+
+async function Alerts() {
+  return <AlertBanner alerts={await getAlerts()} />
+}
+
+async function LastRefreshed() {
+  await connection()
+  return <time>{new Date().toLocaleTimeString('en-US')}</time>
+}
+```
 
 Server Components: async where useful, runtime reads placed below boundaries, client work pushed to leaves.
 
-{EXTRACT:demos/next-lab/app/products/[slug]/add-to-cart.tsx}
+<!-- extract: demos/next-lab/app/products/[slug]/add-to-cart.tsx -->
+```tsx
+'use client'
+
+// client: owns the quantity input's local state
+import { useState } from 'react'
+import { addToCart } from './actions'
+
+export function AddToCart({ productId }: { productId: string }) {
+  const [qty, setQty] = useState(1)
+
+  return (
+    <form action={addToCart}>
+      <input type="hidden" name="productId" value={productId} />
+      <input
+        type="number"
+        name="qty"
+        min={1}
+        value={qty}
+        onChange={(e) => setQty(Number(e.target.value))}
+      />
+      <button type="submit">Add to cart</button>
+    </form>
+  )
+}
+```
 
 Client: state at the leaf, and the reason written down.
 
-{EXTRACT:demos/next-lab/app/products/[slug]/actions.ts}
+<!-- extract: demos/next-lab/app/products/[slug]/actions.ts -->
+```ts
+'use server'
+
+export async function addToCart(formData: FormData) {
+  const productId = String(formData.get('productId') ?? '')
+  const qty = Number(formData.get('qty') ?? 1)
+  if (!productId || qty < 1) return
+  // A real implementation authorizes here — a Server Function is a public
+  // endpoint, and the UI that called it is not the authorization.
+  console.log('[demo] add to cart', { productId, qty })
+}
+```
 
 Server Function: async, and the authorization note where the check belongs.
 
 ### And the four violations
 
-{EXTRACT:demos/next-lab/antipatterns/non-async-cached-fn.ts}
+<!-- extract: demos/next-lab/antipatterns/non-async-cached-fn.ts -->
+```ts
+// antipattern: a 'use cache' function that isn't async. The directive requires
+// it — there is no synchronous cache entry, because a cache read is always at
+// least one await away.
+// fails: build
+export function getNonAsync() {
+  'use cache'
+  return 42
+}
+```
 
-{EXTRACT:demos/next-lab/antipatterns/hooks-in-server-component.tsx}
+<!-- extract: demos/next-lab/antipatterns/hooks-in-server-component.tsx -->
+```tsx
+// antipattern: a hook called in a Server Component with no 'use client'. There
+// is no client instance for useState to attach to — this isn't a lint rule
+// being strict, it is a real absence.
+// fails: build
+import { useState } from 'react'
 
-{EXTRACT:demos/next-lab/antipatterns/imported-server-component.tsx}
+export function Counter() {
+  const [count] = useState(0)
+  return <p>{count}</p>
+}
+```
 
-{EXTRACT:demos/next-lab/antipatterns/class-instance-prop.tsx}
+<!-- extract: demos/next-lab/antipatterns/imported-server-component.tsx -->
+```tsx
+// antipattern: a directive-less component that reads a server-only API,
+// reached through a Client Component's import graph. The import itself
+// doesn't error — it silently reclassifies this module as client code — but
+// next/headers has no client-side implementation, so the build fails the
+// moment the reclassified module tries to use it.
+// fails: build
+import { cookies } from 'next/headers'
+
+export async function AccountBadge() {
+  const store = await cookies()
+  return <span>{store.get('plan')?.value ?? 'free'}</span>
+}
+```
+
+<!-- extract: demos/next-lab/antipatterns/class-instance-prop.tsx -->
+```tsx
+// antipattern: a class instance passed as a prop from a Server Component to a
+// Client Component. Measured (article 8's enforcement matrix, probe 10): this
+// is a build-time prerender error, not a silent shape with missing methods.
+// fails: build
+export class Widget {
+  constructor(public name: string) {}
+  getName() {
+    return this.name
+  }
+}
+```
 
 Each carries a `// fails:` line recording where it was caught. Those lines are measurements, not predictions.
 

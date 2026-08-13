@@ -49,6 +49,15 @@ Banned examples (see the ledger Ban column for the full list):
 - `fetchCache`
 - `middleware.ts` (use `proxy.ts` when teaching the network boundary)
 
+## Gate discipline
+
+Two gates have now been effectively disabled by their own specification (the
+legacy gate, softened for drafts; the link gate, always-warning on a
+checkout-path bug). Both times the rule was missing a category, not wrong.
+**When a gate fires on something legitimate, the fix is to add a category,
+never to soften the gate.** Softening removes the gate; adding a category
+keeps it. There are more gates and more articles ahead of this one.
+
 ## Editorial invariants
 
 - **Then vs now is mandatory** on every concept article (four-column table;

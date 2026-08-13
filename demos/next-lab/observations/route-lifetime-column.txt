@@ -1,0 +1,7 @@
+# produced: 2026-08-10; next@16.3.0; command: add a second cached fn with cacheLife('minutes') to /streaming-coarse (whose only existing cached entry session 5 measured absent from the prerender); pnpm build; read the Revalidate/Expire columns; revert
+baseline (session 6, before this probe): /streaming-coarse showed 1h 1d
+this probe: added a second 'use cache' fn with cacheLife('minutes'), called (and its result read) from the same route, alongside the pre-existing entry
+build: PASS
+route table lines mentioning /streaming-coarse:
+Route (app)                    Revalidate  Expire
+├ ◐ /streaming-coarse                  1m      1h

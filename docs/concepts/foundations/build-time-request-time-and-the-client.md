@@ -213,7 +213,7 @@ Prefer no timestamp in a cached section (see `BuildTimeSection`) over a stamped 
 
 The two classes fail for different reasons, and the escape hatch only addresses one of them.
 
-- `instant = false` means **"this segment may block."** It is a statement about latency, and it silences the validator's insight about a non-instant navigation.
+- `instant = false` means **"this segment may block."** It is a statement about latency, and it silences the validator's insight about a non-instant navigation. It doesn't merely *permit* blocking, either — the route table classifies a segment carrying the flag as `ƒ` Dynamic rather than `◐` Partial Prerender, so the segment loses its shell entirely rather than trading a slower one; `app/insight-probe/` (article 6) ships with the flag for exactly this reason and shows `ƒ` in the build table.
 - A sync-IO error means **"this value cannot be computed before the request exists."** It is a statement about correctness.
 
 A latency opt-out cannot resolve a correctness failure:
