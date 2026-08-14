@@ -75,7 +75,7 @@ Both are things a reader under time pressure will reach for. If either works, th
 
 ## 6. Template
 
-`prompts/session16/everything-went-dynamic-after-the-upgrade.md.tpl` ships with this. Placeholders:
+`prompts/everything-went-dynamic-after-the-upgrade.md.tpl` ships with this. Placeholders:
 
 - `{ERROR_CASCADE}` — §2, in the real order
 - `{BEFORE_AFTER}` — §3, all three states including the intermediate

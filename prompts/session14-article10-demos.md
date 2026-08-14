@@ -101,7 +101,7 @@ Verify each is present before building; report anything missing rather than recr
 
 ## 5. Template
 
-`prompts/session14/cache-lifetimes.md.tpl` ships with this. Placeholders:
+`prompts/cache-lifetimes.md.tpl` ships with this. Placeholders:
 
 - `{CLOCK_SEPARATION}` — experiment C, timings and `generatedAt` values
 - `{NESTING_RESULT}` — experiment A, both cases

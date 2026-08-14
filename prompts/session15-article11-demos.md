@@ -92,7 +92,7 @@ Two claims made in articles 6 and 9, never tested:
 
 ## 5. Template
 
-`prompts/session15/tags-and-invalidation.md.tpl` ships with this. Placeholders:
+`prompts/tags-and-invalidation.md.tpl` ships with this. Placeholders:
 
 - `{INVALIDATION_SEMANTICS}` — experiment A, all six data points
 - `{SCOPE_RESTRICTIONS}` — experiment B, both claims with phase
