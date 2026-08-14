@@ -33,7 +33,32 @@ The **client graph** starts at every file carrying `'use client'` and extends th
 
 The directive is the seam. It goes on a *file*, before any imports, and that file's exports become entry points.
 
-{EXTRACT:demos/next-lab/app/products/[slug]/add-to-cart.tsx}
+<!-- extract: demos/next-lab/app/products/[slug]/add-to-cart.tsx -->
+```tsx
+'use client'
+
+// client: owns the quantity input's local state
+import { useState } from 'react'
+import { addToCart } from './actions'
+
+export function AddToCart({ productId }: { productId: string }) {
+  const [qty, setQty] = useState(1)
+
+  return (
+    <form action={addToCart}>
+      <input type="hidden" name="productId" value={productId} />
+      <input
+        type="number"
+        name="qty"
+        min={1}
+        value={qty}
+        onChange={(e) => setQty(Number(e.target.value))}
+      />
+      <button type="submit">Add to cart</button>
+    </form>
+  )
+}
+```
 
 You do **not** repeat it in every file underneath. A file imported by a Client Component is already in the client graph. You add the directive only where a Server Component renders directly into client-land.
 
@@ -67,7 +92,24 @@ Two consequences follow directly from that format, and one of them is measured b
 
 **Serializability is not a style rule.** A prop must have a representation in the payload. Primitives, plain objects and arrays, `Date`, `Map`, `Set`, typed arrays, `FormData`, JSX elements, and Promises all do. A closure does not — there is no way to send a function body. A class instance does not either, and the framework rejects it rather than degrading:
 
-{EXTRACT:demos/next-lab/antipatterns/class-instance-prop.tsx}
+<!-- extract: demos/next-lab/antipatterns/class-instance-prop.tsx -->
+```tsx
+// antipattern: a class instance passed as a prop from a Server Component to a
+// Client Component. Measured (article 8's enforcement matrix, probe 10): this
+// is a hard, named error — never the silent shape with missing methods an
+// earlier draft assumed — but *when* it fires is phase-dependent. On a route
+// that prerenders this boundary (probe 10a), the build fails. On a route
+// where an unrelated dynamic API already deferred that subtree past the
+// prerender pass (probe 10b, same shape as app/leak-a), the identical
+// violation waits for a real request.
+// fails: build (prerendered subtree) — or runtime, if an unrelated dynamic API already deferred the subtree
+export class Widget {
+  constructor(public name: string) {}
+  getName() {
+    return this.name
+  }
+}
+```
 
 Note the enforcement phase on that file. It is caught when the offending code is *rendered*, which means a prerendered route catches it at build and a postponed subtree does not catch it until a request arrives. See [`rules-of-the-server-boundary`](./rules-of-the-server-boundary.md) for the full matrix — the phase is a property of the route's shape, not of the violation.
 
@@ -88,7 +130,38 @@ Two shapes, identical visible output, measured — a `Stage2List` receiving the 
 | b — `children` through `FilterShell` | 40 | 15,093 B | 7,316 B | 12,269 B |
 | b — `children` through `FilterShell` | 4,000 | 15,093 B | 317,673 B | 581,930 B |
 
-{EXTRACT:demos/next-lab/observations/payload-boundary.txt}
+<!-- extract: demos/next-lab/observations/payload-boundary.txt -->
+```text
+# produced: 2026-08-14; next@16.3.0; command: pnpm build; pnpm start; curl -s -o /dev/null -w "%{size_download} %{http_code}" /payload-{a,b}-{40,4000} (twice: HTML, then RSC-only with validateRSCRequestHeaders off)
+## Build table — the four payload routes (from the same `pnpm build` used below)
+Route (app)                    Revalidate  Expire
+├ ○ /payload-a-40
+├ ○ /payload-a-4000
+├ ○ /payload-b-40
+├ ○ /payload-b-4000
+
+## Bundle size — entryJSFiles from page_client-reference-manifest.js (route-owned JS only)
+payload-a-40     entryJSFiles = 15100 B  (static/chunks/3sixitmmlv55t.js, static/chunks/240xgaqo6vdsc.js)
+payload-a-4000   entryJSFiles = 15100 B  (static/chunks/3sixitmmlv55t.js, static/chunks/240xgaqo6vdsc.js)
+payload-b-40     entryJSFiles = 15093 B  (static/chunks/3sixitmmlv55t.js, static/chunks/1yy9_5a_75kt-.js)
+payload-b-4000   entryJSFiles = 15093 B  (static/chunks/3sixitmmlv55t.js, static/chunks/1yy9_5a_75kt-.js)
+
+## Total HTML response size — curl -s -o /dev/null -w "%{size_download} %{http_code}" (production server, no rsc header)
+payload-a-40     14052 B  (HTTP 200)
+payload-a-4000   710896 B  (HTTP 200)
+payload-b-40     12269 B  (HTTP 200)
+payload-b-4000   581930 B  (HTTP 200)
+
+## RSC payload only — curl -H "rsc: 1" against a build with experimental.validateRSCRequestHeaders:false (scratch config, reverted)
+This isolates exactly what crosses the boundary for hydration: the a-shape ships the raw product objects (id, slug, name, description, priceCents) as props; the b-shape ships only the already-rendered `<li>` elements ProductRow produced (name + formatted price, nothing else).
+payload-a-40     10046 B  (HTTP 200)
+payload-a-4000   553470 B  (HTTP 200)
+payload-b-40     7316 B  (HTTP 200)
+payload-b-4000   317673 B  (HTTP 200)
+
+a/b ratio at 40 products: 1.37x (2730 B difference, 68.3 B/product)
+a/b ratio at 4,000 products: 1.74x (235797 B difference, 58.9 B/product)
+```
 
 The bundle rows are the control. They barely move — 15,100 B vs 15,093 B, a 7-byte rounding difference regardless of whether the route renders 40 products or 4,000 — because the *code* is nearly the same in both shapes. The RSC-payload column is where the boundary's position shows up: at 40 products the gap is 2,730 B (a is 1.37× b); at 4,000 it's 235,797 B (1.74×). **Report the size honestly: this confirms the direction of the claim, not the dramatic version of it.** Both payloads grow with the product count, because both shapes render the same list — what differs is the per-item overhead. `Stage2List` receives entire product records (`id`, `slug`, `description`, `priceCents`) as props whether or not it reads them; `ProductRow`'s output carries only what it actually rendered, a name and a formatted price. At 40 products that overhead is a few kilobytes, easy to miss next to everything else on the page. At 4,000 it is 236 KB that no bundle report will ever show you, paid again on every re-render that crosses the boundary — not once at load.
 
@@ -104,11 +177,70 @@ Importing a Server Component into a Client Component does not reliably break. Wh
 
 If the component uses `next/headers`, does unsuspended data access, or otherwise depends on the server, the build fails. If it does none of those — and most presentational components do none of those — it becomes a Client Component and everything keeps working. It is bundled, shipped, hydrated. Nothing in the build output announces that a component you designed to stay on the server is now in the browser, along with everything it imports.
 
-{EXTRACT:demos/next-lab/antipatterns/imported-server-component.tsx}
+<!-- extract: demos/next-lab/antipatterns/imported-server-component.tsx -->
+```tsx
+// antipattern: a directive-less component that reads a server-only API,
+// reached through a Client Component's import graph. The import itself
+// doesn't error — it silently reclassifies this module as client code — but
+// next/headers has no client-side implementation, so the build fails the
+// moment the reclassified module tries to use it.
+// fails: build
+import { cookies } from 'next/headers'
+
+export async function AccountBadge() {
+  const store = await cookies()
+  return <span>{store.get('plan')?.value ?? 'free'}</span>
+}
+```
 
 That file's `next/headers` import gives it a loud failure. Most components don't have one. Measured against a pair with no server-only content at all — `convert-a` composes `ProductRow` as `children` through `FilterShell` (correct); `convert-b` imports `ProductRow` directly into a client file and renders it there:
 
-{EXTRACT:demos/next-lab/observations/silent-conversion.txt}
+<!-- extract: demos/next-lab/observations/silent-conversion.txt -->
+```text
+# produced: 2026-08-14; next@16.3.0; command: pnpm build (convert-a vs convert-b); add import 'server-only' to product-row.tsx; pnpm build again
+## Step 1 — before `server-only`: build both routes, compare bundle rows
+Route (app)                    Revalidate  Expire
+├ ○ /convert-a
+├ ○ /convert-b
+
+convert-a entryJSFiles = 15093 B  (static/chunks/3sixitmmlv55t.js, static/chunks/1yy9_5a_75kt-.js)
+convert-b entryJSFiles = 15367 B  (static/chunks/3sixitmmlv55t.js, static/chunks/40jxhv2dx2n7n.js)
+
+`ProductRow` as its own entry in convert-b's client-reference manifest (clientModules matching "product-row"):
+(none — not a separate module; see whether it is inlined into the importing file below)
+
+## Step 2 — after `import 'server-only'` in product-row.tsx, rebuild
+build exit code: 1
+build FAILED. Relevant output:
+> Build error occurred
+Error: Turbopack build failed with 2 errors:
+./demos/next-lab/app/catalog/product-row.tsx:1:1
+Error: You're importing a module that depends on "server-only" into a React Client Component module. This API is only available in Server Components but one of its parents is marked with "use client", so this module is also a Client Component.
+    Learn more: https://nextjs.org/docs/app/building-your-application/rendering
+> 1 | import 'server-only'
+    | ^^^^^^^^^^^^^^^^^^^^
+  2 |
+  3 | import type { Product } from '@/lib/db'
+---
+./demos/next-lab/app/catalog/product-row.tsx:1:1
+Error: You're importing a module that depends on "server-only" into a React Client Component module. This API is only available in Server Components but one of its parents is marked with "use client", so this module is also a Client Component.
+    Learn more: https://nextjs.org/docs/app/building-your-application/rendering
+> 1 | import 'server-only'
+    | ^^^^^^^^^^^^^^^^^^^^
+  2 |
+  3 | import type { Product } from '@/lib/db'
+  4 | import { formatPrice } from '@/lib/db'
+
+---
+    Learn more: https://nextjs.org/docs/app/building-your-application/rendering
+> 1 | import 'server-only'
+    | ^^^^^^^^^^^^^^^^^^^^
+  2 |
+  3 | import type { Product } from '@/lib/db'
+  4 | import { formatPrice } from '@/lib/db'
+
+Ecmascript file had an error
+```
 
 Both routes build. Neither logs a warning. `convert-b`'s bundle grows by exactly `ProductRow`'s code — 274 B in this demo, inlined into the file that imported it rather than appearing as its own manifest entry — and that bundle diff is the *only* place the conversion shows up, and only if you go looking for it. Adding `import 'server-only'` to `product-row.tsx` turns the identical import into a **named build failure**: `You're importing a module that depends on "server-only" into a React Client Component module`, pointing at the exact line. And because this is a bundler-time import-graph check rather than a React render-time check, the guard is unconditional — unlike the class-instance check above, which only fires when the offending code actually renders and can be deferred to runtime by an unrelated dynamic API upstream, a `server-only` violation fails the build every time, regardless of what else the route does.
 
@@ -134,9 +266,47 @@ Useful, and worth being deliberate about: the documented preference is still to 
 
 The default is Server. You opt into Client, at a leaf, for a stated reason.
 
-{EXTRACT:demos/next-lab/app/catalog/product-row.tsx}
+<!-- extract: demos/next-lab/app/catalog/product-row.tsx -->
+```tsx
+import type { Product } from '@/lib/db'
+import { formatPrice } from '@/lib/db'
 
-{EXTRACT:demos/next-lab/app/catalog/filter-shell.tsx}
+// Server Component. Passed into FilterShell as children, never imported
+// by it — which is why it stays out of the client bundle.
+export function ProductRow({ product }: { product: Product }) {
+  return (
+    <li>
+      {product.name} — {formatPrice(product.priceCents)}
+    </li>
+  )
+}
+```
+
+<!-- extract: demos/next-lab/app/catalog/filter-shell.tsx -->
+```tsx
+'use client'
+
+// client: owns the filter text state
+import { createContext, useContext, useState } from 'react'
+
+const FilterContext = createContext('')
+export const useFilter = () => useContext(FilterContext)
+
+export function FilterShell({ children }: { children: React.ReactNode }) {
+  const [filter, setFilter] = useState('')
+
+  return (
+    <FilterContext.Provider value={filter}>
+      <input
+        value={filter}
+        placeholder="Filter…"
+        onChange={(e) => setFilter(e.target.value)}
+      />
+      {children}
+    </FilterContext.Provider>
+  )
+}
+```
 
 The rows stay on the server. Only the input ships.
 
@@ -148,15 +318,73 @@ The feature: a product list with a client-side text filter.
 
 ### Stage 1 — the version that looks reasonable
 
-{EXTRACT:demos/next-lab/app/catalog/_stages/stage1-page.tsx}
+<!-- extract: demos/next-lab/app/catalog/_stages/stage1-page.tsx -->
+```tsx
+'use client'
+
+// STAGE 1 — the version most people write first, preserved to be measured
+// against. Four costs: whole subtree in the client graph, data loads after
+// hydration, an API route that exists only for this page, and an empty shell.
+import { useEffect, useState } from 'react'
+import type { Product } from '@/lib/db'
+
+export function Stage1CatalogPage() {
+  const [products, setProducts] = useState<Product[]>([])
+  const [filter, setFilter] = useState('')
+
+  useEffect(() => {
+    fetch('/api/products')
+      .then((r) => r.json())
+      .then(setProducts)
+  }, [])
+
+  const visible = products.filter((p) => p.name.includes(filter))
+
+  return (
+    <>
+      <input value={filter} onChange={(e) => setFilter(e.target.value)} />
+      <ul>{visible.map((p) => <li key={p.id}>{p.name}</li>)}</ul>
+    </>
+  )
+}
+```
 
 Four costs, none obvious from reading it: the whole subtree joins the client graph; data loads *after* hydration; you needed an API route that exists only for your own page; and the shell contains an empty list.
 
 ### Stage 2 — server data, client filter
 
-{EXTRACT:demos/next-lab/app/catalog/_stages/stage2-page.tsx}
+<!-- extract: demos/next-lab/app/catalog/_stages/stage2-page.tsx -->
+```tsx
+// STAGE 2 — server data, client filter. Waterfall and API route gone, but
+// every product now crosses the boundary as a serialized prop.
+import { getAllProducts } from '@/lib/catalog'
+import { Stage2List } from './stage2-list'
 
-{EXTRACT:demos/next-lab/app/catalog/_stages/stage2-list.tsx}
+export async function Stage2CatalogPage() {
+  const products = await getAllProducts()
+  return <Stage2List products={products} />
+}
+```
+
+<!-- extract: demos/next-lab/app/catalog/_stages/stage2-list.tsx -->
+```tsx
+'use client'
+
+import { useState } from 'react'
+import type { Product } from '@/lib/db'
+
+export function Stage2List({ products }: { products: Product[] }) {
+  const [filter, setFilter] = useState('')
+  const visible = products.filter((p) => p.name.includes(filter))
+
+  return (
+    <>
+      <input value={filter} onChange={(e) => setFilter(e.target.value)} />
+      <ul>{visible.map((p) => <li key={p.id}>{p.name}</li>)}</ul>
+    </>
+  )
+}
+```
 
 The waterfall and the API route are gone. But every product now crosses the boundary as a serialized prop — the cost measured in the payload table above.
 
@@ -164,7 +392,30 @@ The waterfall and the API route are gone. But every product now crosses the boun
 
 The rows are not interactive. Only the input is. So let the client component own the state and the layout, and receive the rows as already-rendered output.
 
-{EXTRACT:demos/next-lab/app/catalog/_stages/stage3-page.tsx}
+<!-- extract: demos/next-lab/app/catalog/_stages/stage3-page.tsx -->
+```tsx
+// STAGE 3 — the slot. Rows are rendered on the server and passed through
+// the client boundary as children, so they are never bundled.
+//
+// The trade this makes: the client no longer has the data, so the filter
+// cannot re-filter locally. If instant local filtering is required,
+// stage 2 is correct and the prop cost is the price.
+import { getAllProducts } from '@/lib/catalog'
+import { FilterShell } from '../filter-shell'
+import { ProductRow } from '../product-row'
+
+export async function Stage3CatalogPage() {
+  const products = await getAllProducts()
+
+  return (
+    <FilterShell>
+      <ul>
+        {products.map((p) => <ProductRow key={p.id} product={p} />)}
+      </ul>
+    </FilterShell>
+  )
+}
+```
 
 `ProductRow` is a Server Component, rendered on the server and passed in as `children`, so it never enters the client graph.
 
@@ -174,9 +425,57 @@ The rows are not interactive. Only the input is. So let the client component own
 
 Between the two: pass the **unresolved promise** and unwrap it with `use()`.
 
-{EXTRACT:demos/next-lab/app/catalog/page.tsx}
+<!-- extract: demos/next-lab/app/catalog/page.tsx -->
+```tsx
+import { Suspense } from 'react'
+import { getAllProducts } from '@/lib/catalog'
+import { FilterableList } from './filterable-list'
 
-{EXTRACT:demos/next-lab/app/catalog/filterable-list.tsx}
+export default function CatalogPage() {
+  // Not awaited. The promise crosses the client boundary and is unwrapped
+  // with use() on the other side, so the page never blocks.
+  const productsPromise = getAllProducts()
+
+  return (
+    <Suspense fallback={<p aria-busy="true">Loading catalog…</p>}>
+      <FilterableList products={productsPromise} />
+    </Suspense>
+  )
+}
+```
+
+<!-- extract: demos/next-lab/app/catalog/filterable-list.tsx -->
+```tsx
+'use client'
+
+// client: owns filter state AND unwraps a streamed promise
+import { use, useState } from 'react'
+import type { Product } from '@/lib/db'
+import { formatPrice } from '@/lib/db'
+
+export function FilterableList({ products }: { products: Promise<Product[]> }) {
+  const list = use(products)
+  const [filter, setFilter] = useState('')
+  const visible = list.filter((p) =>
+    p.name.toLowerCase().includes(filter.toLowerCase())
+  )
+
+  return (
+    <>
+      <input
+        value={filter}
+        placeholder="Filter…"
+        onChange={(e) => setFilter(e.target.value)}
+      />
+      <ul>
+        {visible.map((p) => (
+          <li key={p.id}>{p.name} — {formatPrice(p.priceCents)}</li>
+        ))}
+      </ul>
+    </>
+  )
+}
+```
 
 The page never awaits, so it never blocks; the boundary streams.
 
