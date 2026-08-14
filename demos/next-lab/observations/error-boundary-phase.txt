@@ -1,0 +1,207 @@
+# produced: 2026-08-14; next@16.3.0; command: two scratch variants under app/conventions/, one at a time: add -> pnpm --filter next-lab build -> capture -> (if built) pnpm --filter next-lab start + curl -> capture -> remove
+
+## C1 — throw in a Server Component on a route that would prerender
+
+where: app/conventions/scratch-c1/page.tsx (scratch route, removed after capture)
+```
+export default function ScratchC1Page() {
+  throw new Error('boom')
+}
+```
+No `connection()`, no dynamic API — a synchronous throw only. This route
+inherits `app/conventions/layout.tsx`, `template.tsx`, `loading.tsx`, and
+`error.tsx` from its parent segment, none of which read anything dynamic.
+
+build: **FAIL** (exit 1)
+build error (first line): Error: boom
+runtime: not applicable — build must pass before request-time behavior can be observed
+silent?: n/a — caught at build, with a source frame naming the exact line
+
+full extract:
+```
+Error occurred prerendering page "/conventions/scratch-c1". Read more: https://nextjs.org/docs/messages/prerender-error
+Error: boom
+    at <unknown> (app/conventions/scratch-c1/page.tsx:2:9)
+  1 | export default function ScratchC1Page() {
+> 2 |   throw new Error('boom')
+    |         ^
+  3 | }
+  digest: '747961835'
+}
+Export encountered an error on /conventions/scratch-c1/page: /conventions/scratch-c1, exiting the build.
+⨯ Next.js build worker exited with code: 1 and signal: null
+```
+
+**Answer: next build FAILS. Nothing gets baked into a static artifact.**
+This directly falsifies the "surprising and important" hypothesis this
+experiment was designed to test — a route that ships its own failure as
+cached HTML did not happen here. `error.tsx` never entered the picture: the
+build's error output is a raw stack trace pointing at the throwing line,
+with no mention of an error boundary or fallback UI. The reason lines up
+with the same "enforcement follows execution" rule this repo has already
+measured for dynamic-API misuse (see `enforcement-matrix.txt`): a plain
+`throw` is not a signal Cache Components' renderer knows how to defer the
+way it defers `connection()`/`cookies()` (those internally raise a special
+postponement signal the renderer specifically recognizes). A generic
+exception during the synchronous static-generation render pass is just a
+hard failure, full stop — regardless of how many error boundaries sit
+above it in the tree. Error boundaries in this framework are a *client*
+mechanism (React's `componentDidCatch`, see the file-conventions article's
+"structural" explanation for why `error.tsx` must be a Client Component);
+they catch errors that surface during a request-time render/hydration
+pass, not errors that abort the server's one-shot attempt to produce a
+static shell at build time.
+
+## C2 — the same throw, deferred behind an outer connection() + <Suspense>
+
+where: app/conventions/scratch-c2/page.tsx (scratch route, removed after capture)
+```
+import { Suspense } from 'react'
+import { connection } from 'next/server'
+
+export default function ScratchC2Page() {
+  return (
+    <Suspense fallback={<p aria-busy="true">Loading…</p>}>
+      <ScratchC2Body />
+    </Suspense>
+  )
+}
+
+async function ScratchC2Body(): Promise<React.ReactNode> {
+  await connection()
+  throw new Error('boom')
+}
+```
+
+build: **PASS** (exit 0) — ships as ◐ Partial Prerender (`/conventions/scratch-c2`)
+runtime: `curl -i http://localhost:3021/conventions/scratch-c2` ->
+```
+HTTP/1.1 200 OK
+x-nextjs-stale-time: 300
+x-nextjs-prerender: 1
+x-nextjs-postponed: 1
+Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate
+Content-Type: text/html; charset=utf-8
+```
+silent?: no — loud once requested (the client-side error boundary shows
+its fallback after hydration), but request-time-only: the build gives no
+signal that this route has a landmine in it.
+
+The response body's initial HTML is the static shell — `layout` and
+`template` markers, plus the explicit `<p aria-busy="true">Loading…</p>`
+fallback (both loading.tsx's implicit boundary and this route's own
+explicit Suspense resolve to "still pending" in the shell, since the
+throw is behind `connection()`). The actual failure arrives later in the
+same streamed response, inside the RSC payload, as a digest only — no
+plaintext message reaches the client in this production build:
+```
+7:E{"digest":"4152203800"}
+```
+followed by a script call that marks that Suspense boundary as errored and
+retries it on the client: `$RX("B:0","4152203800")`. There is **no
+non-200 status anywhere** — the failure is carried entirely inside the
+streamed payload, exactly like the `cookies()`-inside-`'use cache'` leak
+probes in `enforcement-matrix.txt` (probes 3b/4b). Once hydrated, the
+digest triggers React's client-side error boundary — the nearest
+`error.tsx` above the Suspense, i.e. `app/conventions/error.tsx` — which
+renders its fallback UI in the browser (not observable via `curl` alone;
+confirmed by the boundary-id mapping in the RSC payload, cross-checked in
+the antipattern verification below using the identical mechanism).
+
+**Answer: yes, build passes and the error surfaces only at request time**,
+exactly as C1's outcome predicts it must — the deferred version protects
+the build the same way `connection()`/`cookies()` protects any other
+uncached-dynamic-data violation from failing at build. Error boundaries
+DO participate in "enforcement follows execution": a throw's build-vs-
+runtime fate is governed entirely by whether the code path that reaches it
+is deferred behind a dynamic API inside a Suspense boundary — not by
+whether an `error.tsx` exists, and not by anything specific to error
+boundaries as a mechanism. The **combined finding across C1/C2** is more
+precise than "does error.tsx catch a prerender-time throw": error.tsx does
+not participate in the build's prerender attempt at all, in either
+direction. It has nothing to do at build time (C1 fails with no fallback
+baked in; a hypothetically-deferred, un-thrown version of the same route
+would just prerender cleanly with no error UI anywhere). It only becomes
+relevant once a request actually resumes a postponed render and something
+in it throws.
+
+## Antipattern verification — does error.tsx catch its own segment's layout?
+
+Claim under test (`antipatterns/error-boundary-cannot-catch.tsx`):
+"error.tsx cannot catch errors thrown by the layout in its own segment —
+the boundary sits inside that layout, so a layout throw escapes upward.
+Only a parent segment's error.tsx, or global-error.tsx, catches it."
+
+A synchronous, unconditional throw in a layout (mirroring the antipattern
+file exactly) fails the build the same way C1 does — layouts are not
+implicitly wrapped in a Suspense boundary the way loading.tsx wraps a
+segment's `children`, so an un-deferred throw in a layout is just another
+instance of C1's finding, not a new data point about *which* boundary is
+positioned to catch it. To get a request-time answer, the layout's throw
+was deferred the same way C2 defers its page's throw:
+
+where: app/scratch-error-layout/{error.tsx, child/{error.tsx, layout.tsx, page.tsx}} (scratch tree, removed after capture)
+```
+// app/scratch-error-layout/child/layout.tsx
+import { Suspense } from 'react'
+import { connection } from 'next/server'
+export const instant = false
+
+export default function ThrowingLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<p aria-busy="true">loading layout…</p>}>
+      <ThrowingBody>{children}</ThrowingBody>
+    </Suspense>
+  )
+}
+
+async function ThrowingBody({ children }: { children: React.ReactNode }): Promise<React.ReactNode> {
+  await connection()
+  throw new Error('layouts throw past their own sibling error.tsx')
+  return children
+}
+```
+`app/scratch-error-layout/error.tsx` and `app/scratch-error-layout/child/error.tsx`
+are identical client error boundaries except for their `data-marker`
+(`parent-error` vs `child-error`), so the RSC payload's boundary wiring is
+the only way to tell which one is actually positioned to catch this.
+
+build: PASS (exit 0) — ships as ◐ Partial Prerender (`/scratch-error-layout/child`)
+runtime: `curl -s http://localhost:3022/scratch-error-layout/child` -> HTTP 200,
+same postponed/digest shape as C2. The RSC payload shows:
+
+```
+...,{"children":[["$","$1","c",{"children":[null,["$","$L2",null,{
+  "parallelRouterKey":"children","error":"$4", ...          <- $4 = scratch-error-layout/error.tsx (PARENT)
+  "template":["$","$L3",null,{}], ...}]]}],
+  {"children":[["$","$1","c",{"children":[null,["$","$5",null,{
+    "fallback":[...,"loading layout…"],"children":"$L6"}]]}],   <- the layout's OWN Suspense, no $L2/error wrapper here
+  ...}]}
+...
+6:E{"digest":"322567739"}
+```
+
+**No `$L2` (the router component that carries a segment's own `error` prop)
+appears between the parent's boundary (`$4`) and the layout's own Suspense
+(`$5`).** The rejected Suspense (id `6`, carrying the digest) sits directly
+inside the tree wrapped by `error:"$4"` — the *parent* segment's boundary —
+with nothing belonging to `child/error.tsx` positioned above it. `child/
+error.tsx` is never referenced anywhere in this render at all, because
+Next never gets to insert that segment's own router/boundary wrapper: that
+wrapper is built around what the layout passes through as `children`, and
+the throw happens inside the layout's own render, before that point is
+ever reached.
+
+**Finding: CONFIRMED, not corrected.** The claim in
+`antipatterns/error-boundary-cannot-catch.tsx` matches the measured
+behavior exactly — `child/error.tsx` never fires; the parent's error.tsx
+(`$4`, `data-marker="parent-error"`) is the boundary React actually uses.
+The mechanism reason, visible directly in the payload structure: a
+segment's own `error.tsx` is wired in as the `error` prop of the *router
+component that renders that segment's `children`* — which is exactly the
+part of the tree a layout.tsx sits *above*, authoring its own JSX around
+`{children}` rather than being rendered inside the boundary it configures.
+So a layout's own throw (or anything else the layout does before/around
+`{children}`) is structurally outside every boundary the segment itself
+declares, and only an ancestor segment's boundary — or `global-error.tsx`
+at the root — is positioned to catch it.

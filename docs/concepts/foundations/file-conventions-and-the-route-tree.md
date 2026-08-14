@@ -9,7 +9,7 @@ related:
   - routing/error-handling-and-recovery
 next_baseline: "16.3"
 verified_against: next@16.3.0
-verified_on: 2026-08-11
+verified_on: 2026-08-14
 status: draft
 ---
 
@@ -47,11 +47,31 @@ The route tree and the component tree are not the same shape. Folders create URL
 
 ### The measured nesting order
 
-Every published diagram of this shows the same picture. Here is what the rendered output actually contains, with each convention emitting a marker:
+The bundled `next@16.3.0` docs already publish this order as text, not just a diagram (`app/getting-started/project-structure`, "Component hierarchy"): `layout` → `template` → `error` (boundary) → `loading` (Suspense) → `not-found` (boundary) → `page` or a nested `layout`, each nested inside the one before it. Rendering `/conventions` **confirms that order rather than contradicting it** — the thing worth measuring wasn't the order, it's which of those six names put an actual node on the page and which sit invisibly until something fires:
 
-{NESTING_ORDER}
+| Position (outside → inside) | File | Puts a node on the page unconditionally? | In the `/conventions` build shell? |
+| --- | --- | --- | --- |
+| 0 | `layout.tsx` | Yes — its own wrapper element | Yes |
+| 1 | `template.tsx` | Yes — its own wrapper element | Yes |
+| 2 | `error.tsx` | No — a boundary with no output until something throws | Present as a boundary; contributes nothing visible |
+| 3 | `loading.tsx` | Only while its Suspense boundary is pending | Yes — the shell freezes mid-fallback here |
+| 3 | `not-found.tsx` | Only if `notFound()` fires | Didn't fire — absent |
+| 3 | `page.tsx` | Once its Suspense boundary resolves | No — deferred past the shell by `connection()` |
 
-Read the shell membership row carefully — it's the part a diagram can't tell you. The wrappers above the Suspense boundary are prerendered; the page below it is not, because it defers. That's the same mechanism as everywhere else in this model: `loading.tsx` is a `<Suspense>` boundary, and its fallback goes into the shell exactly as any other fallback does.
+`error`, `not-found`, and `page` share depth 3 because they're **alternate outcomes of the same slot**, not three stacked layers — only one of them is ever actually present at once. That's what a name-only list can't show: it reads like six wrappers, but only two of the six (`layout`, `template`) are unconditional.
+
+Measured document order for `/conventions` (`curl` against `next build && next start`): `layout` → `template` → `loading` → `page`. The `page` marker arrives later in the same streamed response, as an out-of-band chunk that swaps into the position `loading` held — it is not literally nested inside `loading` in the final DOM.
+
+`/conventions/nested` has no conventions of its own. It inherits `layout` and `template` — both markers render — and it inherits the Suspense boundary from the parent's `loading.tsx` too, though the boundary never shows a fallback: `nested/page.tsx` has no dynamic API, so the boundary resolves before anything would paint. Document order: `layout` → `template` → `nested-page`.
+
+```
+├ ◐ /conventions
+├ ○ /conventions/nested
+```
+
+`/conventions` ships Partial Prerender — `connection()` in `page.tsx` is the only thing making it dynamic; the other conventions don't. `/conventions/nested` ships fully static, confirming that inheriting a parent's `loading.tsx` boundary doesn't by itself cost a route its static shell. `app/conventions/_private/note.md` produced no route at all: it never appears in the build table, skipped rather than listed and excluded.
+
+Read the shell membership row carefully — it's the part a nesting list can't tell you. The wrappers above the Suspense boundary are prerendered; the page below it is not, because it defers. That's the same mechanism as everywhere else in this model: `loading.tsx` is a `<Suspense>` boundary, and its fallback goes into the shell exactly as any other fallback does.
 
 Which is why `loading.tsx` isn't a separate feature. It is **one Suspense boundary at one fixed position** — the segment root — with your file as its fallback. Convenient when the whole segment is one hole; too blunt when it isn't. Since 16.3 extracts shells from arbitrary trees, explicit boundaries are usually the better tool, and `loading.tsx` stopped being the only way to get a prefetchable shell.
 
@@ -59,27 +79,97 @@ Which is why `loading.tsx` isn't a separate feature. It is **one Suspense bounda
 
 An error boundary needs `componentDidCatch`, which needs a component instance, which needs the client. A Server Component finished executing on another machine — there is nothing left to catch anything.
 
-{EXTRACT:demos/next-lab/app/conventions/error.tsx}
+<!-- extract: demos/next-lab/app/conventions/error.tsx -->
+```tsx
+'use client'
 
-{ERROR_CLIENT_RESULT}
+// error.tsx must be a Client Component — it needs an error boundary, which
+// only exists on the client. Experiment B confirms whether the framework
+// enforces this or merely documents it.
+export default function ConventionsError({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string }
+  reset: () => void
+}) {
+  return (
+    <div data-marker="error">
+      <p>error: {error.message}</p>
+      <button onClick={reset}>reset</button>
+    </div>
+  )
+}
+```
+
+Removing the directive and rebuilding fails immediately, naming the file and the fix directly:
+
+```
+Error: demos/next-lab/app/conventions/error.tsx must be a Client Component. Add the "use client" directive the top of the file to resolve this issue.
+```
+
+This isn't the generic "you used a client-only API in a Server Component" diagnostic that a hooks or event-handler misuse triggers elsewhere in this model — nothing about `error.tsx`'s function body would otherwise mark it client-only. The compiler recognizes the file by its convention name and dedicates a specific check to it, rather than waiting to see whether the directive-less module happens to use something the server can't provide. **Enforced, not merely conventional.**
 
 The consequence people trip on: **`error.tsx` cannot catch errors thrown by the layout in its own segment.** The boundary is rendered *inside* that layout, so a layout throw escapes past it. Only a parent segment's `error.tsx` — or `global-error.tsx` — is positioned to catch it.
 
-{EXTRACT:demos/next-lab/antipatterns/error-boundary-cannot-catch.tsx}
+<!-- extract: demos/next-lab/antipatterns/error-boundary-cannot-catch.tsx -->
+```tsx
+// antipattern: error.tsx cannot catch errors thrown by the layout in its own
+// segment — the boundary sits inside that layout, so a layout throw escapes
+// upward. Only a parent segment's error.tsx, or global-error.tsx, catches it.
+// fails: at runtime, in the parent boundary — not where you put the file.
+export default function BadLayout() {
+  throw new Error('layouts throw past their own sibling error.tsx')
+}
+```
 
 ### When the error boundary fires, and what gets stored
 
 This is where the conventions meet the enforcement rule from [`rules-of-the-server-boundary`](./rules-of-the-server-boundary.md): **enforcement follows execution.** A Server Component that throws is only caught when it runs — and whether it runs at build depends on whether its subtree is prerendered.
 
-{ERROR_PHASE_RESULT}
+A synchronous, undeferred throw — no `connection()`, nothing wrapping it in `<Suspense>` — fails the build outright, with a plain stack trace pointing at the throwing line. `error.tsx` never enters the picture: nothing in the build's output mentions a boundary or a fallback UI. **This falsifies the tempting hypothesis that a route could ship its own failure as cached HTML** — it can't, at least not this way. The reason is the same rule this article has already measured for `loading.tsx`: a generic exception during the synchronous static-generation pass isn't something Cache Components' renderer knows how to defer, the way it defers `connection()`/`cookies()` — those raise a specific postponement signal the renderer recognizes and pauses on. Error boundaries are a *client*-side mechanism (see "structural" above): they catch errors during a request-time render or hydration pass, not errors that abort the server's one-shot attempt to produce a static shell.
+
+Defer the identical throw behind `connection()` inside an explicit `<Suspense>`, and the build passes — the route ships Partial Prerender, same as any other route with a properly-guarded dynamic read. The failure now surfaces only at request time: the response is `200 OK` with `x-nextjs-postponed: 1`, and the thrown error travels inside the streamed RSC payload as a digest, never as a non-200 status or a plaintext message. Once the client hydrates, that digest triggers the nearest `error.tsx` above the boundary, which replaces the pending fallback with its own UI in the browser — never in anything the server persisted.
+
+So the precise version of this finding isn't "`error.tsx` catches a build-time throw" — it's that `error.tsx` has nothing to do at build time, in either direction. Whether a throw fails the build or waits for a real request is decided entirely by whether the code reaching it is deferred behind a dynamic API inside a `<Suspense>` boundary, exactly the same rule that already governs every other check in this model. The same deferral test on a **layout's own throw** (rather than a page's) confirms the antipattern below by the same mechanism: a layout authors its JSX around `{children}`, which is exactly the part of the tree its own `error.tsx` is wired to protect — so the layout's own throw never reaches that boundary, deferred or not.
+
+**Stated plainly, since it's easy to read the above as a nuance rather than a rule: `error.tsx` is a request-time recovery mechanism, full stop. It never rescues a failing build.** A build that fails, fails — with or without an `error.tsx` anywhere above the throw. The only thing an error boundary can ever do is replace a *pending* fallback with its own UI after a request resumes a deferred render; it cannot reach back and turn a build failure into a shipped artifact, because by the time the build has failed there is no render left for it to attach to.
 
 ### `layout` persists, `template` remounts
 
 Both wrap `children`. The difference is what happens on navigation within the segment.
 
-{EXTRACT:demos/next-lab/app/conventions/layout.tsx}
+<!-- extract: demos/next-lab/app/conventions/layout.tsx -->
+```tsx
+export default function ConventionsLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <div data-marker="layout">
+      <p>layout</p>
+      {children}
+    </div>
+  )
+}
+```
 
-{EXTRACT:demos/next-lab/app/conventions/template.tsx}
+<!-- extract: demos/next-lab/app/conventions/template.tsx -->
+```tsx
+export default function ConventionsTemplate({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <div data-marker="template">
+      <p>template</p>
+      {children}
+    </div>
+  )
+}
+```
 
 A layout keeps its instance across sibling navigations — state survives, effects don't re-run, scroll position persists. A template gets a fresh instance every time, so effects re-fire and state resets. Reach for `template.tsx` when a per-navigation reset is the *point*: entry animations, per-page analytics that must fire on every view, resetting a form between records.
 
@@ -89,7 +179,12 @@ This distinction got sharper in 16. With React `<Activity>` keeping previous rou
 
 A child segment with no conventions of its own inherits every wrapper above it. Add a `layout.tsx` in the child and it nests *inside* the parent's, not instead of it.
 
-{EXTRACT:demos/next-lab/app/conventions/nested/page.tsx}
+<!-- extract: demos/next-lab/app/conventions/nested/page.tsx -->
+```tsx
+export default function NestedPage() {
+  return <p data-marker="nested-page">nested page</p>
+}
+```
 
 That inheritance is why a single runtime read in a root layout de-opts every route beneath it, and why a `loading.tsx` high in the tree produces a coarse shell for everything below. **Conventions placed high have app-wide blast radius in both directions** — that's the highest-leverage placement decision in the file system.
 
@@ -108,7 +203,16 @@ Two cases where being deliberate pays:
 
 The minimum viable segment is one file:
 
-{EXTRACT:demos/next-lab/app/conventions/page.tsx}
+<!-- extract: demos/next-lab/app/conventions/page.tsx -->
+```tsx
+import { connection } from 'next/server'
+
+export default async function ConventionsPage() {
+  // Forces a request-time render so the loading boundary is exercised.
+  await connection()
+  return <p data-marker="page">page</p>
+}
+```
 
 Add wrappers only where you need them. Each one you add applies to everything beneath.
 
@@ -236,6 +340,7 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 8, 20.
 - `loading.tsx` is one `<Suspense>` boundary at the segment root, so its fallback lands in the shell like any other.
 - `error.tsx` must be a Client Component, and it **cannot catch its own segment's layout**.
 - Error boundaries follow the same rule as everything else: enforcement follows execution, so *when* a server throw is caught depends on whether the subtree prerenders.
+- **`error.tsx` is request-time recovery only — it never rescues a failing build.** A build-time throw is a hard failure regardless of what boundaries sit above it; only a throw deferred behind a dynamic API inside `<Suspense>` ever reaches an error boundary at all.
 - `layout` persists across navigation; `template` remounts. With `<Activity>`, deliberate remounts are now rarer and more significant.
 - Conventions placed high inherit downward, which makes root-level placement the highest-leverage decision in the tree.
 
@@ -265,4 +370,4 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 8, 20.
 
 `demos/next-lab/app/conventions/` including `nested/` and `_private/`, `demos/next-lab/antipatterns/error-boundary-cannot-catch.tsx`, and the capture files in `demos/next-lab/observations/`.
 
-> **Verification status.** Verified against `next@16.3.0`. Three items measured this session rather than reproduced from documentation: the **actual wrapper nesting order** and which wrappers land in the prerendered shell; whether `'use client'` on `error.tsx` is enforced or merely conventional; and whether an error boundary catches a Server Component throw at **build** time when the subtree prerenders — which would mean a route can ship its own failure as cached HTML. The claim that `error.tsx` cannot catch its own segment's layout was authored as an assertion and is verified before extraction. Every code block is extracted.
+> **Verification status.** Verified against `next@16.3.0`. Three items measured this session rather than reproduced from documentation: the **actual wrapper nesting order** and which wrappers land in the prerendered shell (the measurement confirmed the bundled docs' own text description rather than contradicting it — the correction was to which wrappers are DOM-visible versus conditional, not to the order); whether `'use client'` on `error.tsx` is enforced or merely conventional (enforced, with a dedicated build-time check); and whether an error boundary catches a Server Component throw at **build** time when the subtree prerenders (it does not — a plain throw fails the build outright regardless of nearby boundaries, and only surfaces via `error.tsx` when the throw is deferred behind a dynamic API inside `<Suspense>`, at which point it's a request-time-only failure carried as a digest, never baked into a static artifact). The claim that `error.tsx` cannot catch its own segment's layout was authored as an assertion and is verified before extraction — confirmed, not corrected. Every code block is extracted.
