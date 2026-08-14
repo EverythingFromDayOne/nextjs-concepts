@@ -79,26 +79,6 @@ Four reasons, and the fourth is the one that makes this dangerous rather than me
 
 **The framework catches the obvious version, which teaches you the wrong lesson.** Reading `cookies()` directly inside a cached scope is rejected. Having seen that guard fire once, it's natural to conclude the whole class is covered. It isn't — and the two forms that *do* leak are the ones the guard cannot see.
 
-**A fifth reason belongs here, and it's the one that decides how you find this yourself: nothing in the tooling can tell you it happened.** `next build`'s route table and `next dev`'s server log were compared directly between a leaking route and its fix — measured, not assumed:
-
-<!-- extract: demos/next-lab/observations/private-cache-probe.txt#L23-L36 -->
-```text
-## Detection — can anything distinguish /leak-b (leaks) from /leak-fixed (doesn't)?
-
-**`next build` output.** Both routes produce identical annotations:
-Route (app)                    Revalidate  Expire
-├ ◐ /leak-b
-├ ◐ /leak-fixed
-Same `◐` mark, same (absent) Revalidate/Expire pair. The build has no way to know that one function’s key is the identity and the other’s key is nothing — both are syntactically valid `'use cache'` scopes with no argument-vs-key mismatch the compiler can see.
-
-**`next dev` log.** Requesting each route once, with a different cookie each, produced ordinary access-log lines and nothing else:
-/leak-b:     GET /leak-b 200 in 2.1s (next.js: 1564ms, application-code: 585ms)
-/leak-fixed: GET /leak-fixed 200 in 639ms (next.js: 187ms, application-code: 452ms)
-No warning, no diagnostic, no digest — identical shape to a normal request. Neither route emits a "blocking-prerender-dynamic"-style insight, because nothing here is a dynamic-API-outside-Suspense violation; both routes read cookies correctly and cache correctly by every rule the framework checks. The bug is a keying decision, not a rule violation.
-
-**Finding: negative result.** Nothing in `next build` output, the dev-server log, or (by the same reasoning — there is no diagnostic to surface) the dev overlay distinguishes a leaking cache key from a correct one. The framework cannot detect this class. The only reliable check is the two-cookie manual test in Experiment A, run against a production build, on every route that caches user-scoped data.
-```
-
 ---
 
 ## Walkthrough
@@ -268,6 +248,10 @@ Different values, or you still have it. Run it against a **production build** �
 
 **`'use cache: remote'`.** Same key rules, durable storage. A leak that would have vanished on redeploy now persists across instances and deploys.
 
+---
+
+## What doesn't work
+
 **Can `'use cache: private'` just replace all of this?** It's the obvious next question, and it's experimental. Measured against `app/leak-private` + `lib/billing-private.ts`, all four questions the experimental status raises:
 
 <!-- extract: demos/next-lab/observations/private-cache-probe.txt#L2-L21 -->
@@ -292,6 +276,26 @@ Two requests with the *same* cookie (alice), back to back: request 1 time_total=
 This matches the docs directly: the "How `use cache: remote` differs..." comparison table in `use-cache-remote.md` lists `'use cache: private'`’s "Server-side caching" as **None** — caching happens only in the browser’s memory (client-side), which curl has none of, so every request re-executes the function.
 
 **Verdict.** It builds, `cookies()` is permitted, and it does **not** leak across users in this test — each request executes fresh with its own cookie. But it also provides **no server-side caching whatsoever**: every request re-runs the full query, unconditionally. It is not a performance optimization for this scenario at all; it is a way to let a component read request data while still being written under a cache directive. The docs frame it correctly as an escape hatch for compliance constraints or hard-to-refactor code, not a substitute for restructuring — and this recipe agrees: the real fix is Step 4 (read outside, pass the identifying argument in), not swapping the directive.
+```
+
+**Nothing in the tooling can tell you this happened, either.** `next build`'s route table and `next dev`'s server log were compared directly between a leaking route and its fix — measured, not assumed:
+
+<!-- extract: demos/next-lab/observations/private-cache-probe.txt#L23-L36 -->
+```text
+## Detection — can anything distinguish /leak-b (leaks) from /leak-fixed (doesn't)?
+
+**`next build` output.** Both routes produce identical annotations:
+Route (app)                    Revalidate  Expire
+├ ◐ /leak-b
+├ ◐ /leak-fixed
+Same `◐` mark, same (absent) Revalidate/Expire pair. The build has no way to know that one function’s key is the identity and the other’s key is nothing — both are syntactically valid `'use cache'` scopes with no argument-vs-key mismatch the compiler can see.
+
+**`next dev` log.** Requesting each route once, with a different cookie each, produced ordinary access-log lines and nothing else:
+/leak-b:     GET /leak-b 200 in 2.1s (next.js: 1564ms, application-code: 585ms)
+/leak-fixed: GET /leak-fixed 200 in 639ms (next.js: 187ms, application-code: 452ms)
+No warning, no diagnostic, no digest — identical shape to a normal request. Neither route emits a "blocking-prerender-dynamic"-style insight, because nothing here is a dynamic-API-outside-Suspense violation; both routes read cookies correctly and cache correctly by every rule the framework checks. The bug is a keying decision, not a rule violation.
+
+**Finding: negative result.** Nothing in `next build` output, the dev-server log, or (by the same reasoning — there is no diagnostic to surface) the dev overlay distinguishes a leaking cache key from a correct one. The framework cannot detect this class. The only reliable check is the two-cookie manual test in Experiment A, run against a production build, on every route that caches user-scoped data.
 ```
 
 ---

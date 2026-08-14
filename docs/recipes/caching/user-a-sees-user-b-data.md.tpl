@@ -56,10 +56,6 @@ Four reasons, and the fourth is the one that makes this dangerous rather than me
 
 **The framework catches the obvious version, which teaches you the wrong lesson.** Reading `cookies()` directly inside a cached scope is rejected. Having seen that guard fire once, it's natural to conclude the whole class is covered. It isn't — and the two forms that *do* leak are the ones the guard cannot see.
 
-**A fifth reason belongs here, and it's the one that decides how you find this yourself: nothing in the tooling can tell you it happened.** `next build`'s route table and `next dev`'s server log were compared directly between a leaking route and its fix — measured, not assumed:
-
-{EXTRACT:demos/next-lab/observations/private-cache-probe.txt#L23-L36}
-
 ---
 
 ## Walkthrough
@@ -142,9 +138,17 @@ Different values, or you still have it. Run it against a **production build** �
 
 **`'use cache: remote'`.** Same key rules, durable storage. A leak that would have vanished on redeploy now persists across instances and deploys.
 
+---
+
+## What doesn't work
+
 **Can `'use cache: private'` just replace all of this?** It's the obvious next question, and it's experimental. Measured against `app/leak-private` + `lib/billing-private.ts`, all four questions the experimental status raises:
 
 {EXTRACT:demos/next-lab/observations/private-cache-probe.txt#L2-L21}
+
+**Nothing in the tooling can tell you this happened, either.** `next build`'s route table and `next dev`'s server log were compared directly between a leaking route and its fix — measured, not assumed:
+
+{EXTRACT:demos/next-lab/observations/private-cache-probe.txt#L23-L36}
 
 ---
 
