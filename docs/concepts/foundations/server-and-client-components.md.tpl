@@ -168,7 +168,7 @@ The rows are not interactive. Only the input is. So let the client component own
 
 `ProductRow` is a Server Component, rendered on the server and passed in as `children`, so it never enters the client graph.
 
-**Be honest about the trade.** The rows no longer re-filter on the client, because the client no longer has the data. If the filter must be instantaneous and local, **stage 2 is correct and the payload cost is the price.** If the filter belongs in the URL and should re-query the server, this is the right shape. Naming which one you need is the design decision; the composition pattern is just the mechanism.
+**Be honest about the trade.** The rows no longer re-filter on the client, because the client no longer has the data. If the filter must be instantaneous and local, **stage 2 is correct, and the measured payload gap — 1.37×–1.74× larger than stage 3's shape, not an order of magnitude — is the price.** If the filter belongs in the URL and should re-query the server, this is the right shape. Naming which one you need is the design decision; the composition pattern is just the mechanism.
 
 ### Stage 4 — streaming a promise across the boundary
 
@@ -218,7 +218,7 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 8, 14, 19.
 
 **Guard genuinely server-only modules with `server-only`.** It is the one-line defence against the silent conversion — see the conversion result above for what it changes and when it fires.
 
-**Watch payload size, not just bundle size.** Bundle size is measured for you on every build. Payload is not, and it is per-navigation. When a page feels heavy and the bundle report looks fine, measure the payload.
+**Watch payload size, not just bundle size.** Bundle size is measured for you on every build — and it barely moved between the two shapes measured above. Payload size is not measured for you, it is per-navigation, and it is where the two shapes actually diverged: modestly at dozens of rows, by hundreds of kilobytes at thousands. When a page feels heavy and the bundle report looks fine, measure the payload instead of guessing at its size.
 
 **Map at the boundary.** ORM models, `Decimal`, custom value types: convert to plain objects deliberately, in one place per entity.
 
@@ -257,7 +257,7 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 8, 14, 19.
 
 **5. Passing a class instance.** Rejected — and *when* you find out depends on whether the subtree was prerendered. Map to a plain object at the boundary.
 
-**6. Shipping the dataset to render it.** If a Client Component receives an array only to map it into non-interactive markup, the rows belong on the server behind a `children` slot. The cost is in the payload table, not the bundle report.
+**6. Shipping the dataset to render it.** If a Client Component receives an array only to map it into non-interactive markup, the rows belong on the server behind a `children` slot. The cost shows up in the payload table, not the bundle report — measured at 1.37×–1.74× here, growing with row count, not a dramatic one-time hit.
 
 **7. `useSearchParams` without a boundary** — especially in a shared header.
 
@@ -286,7 +286,7 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 8, 14, 19.
 - `'use client'` marks a **module-graph entry point**, not a runtime. Client Components still render on the server first.
 - The directive spreads through `import` and **not** through `children` — which is why a Server Component can render inside a Client Component but cannot be imported by one.
 - The RSC payload represents Client Components as module references plus serialized props. Serializability and per-render payload cost both follow from that format.
-- **Props are re-serialized on every render.** Boundary position is a bandwidth decision, and the bundle report cannot see it.
+- **Props are re-serialized on every render.** Boundary position is a bandwidth decision the bundle report cannot see — measured at a modest but real 1.37×–1.74× here, confirming the direction, not a dramatic multiple.
 - Importing a Server Component **converts** it. When it has no server-only content the conversion is silent — the most common and least visible mistake in the model.
 - A class instance is rejected, but *when* depends on whether the containing subtree was prerendered.
 - Server Functions cross because a reference to an endpoint has a wire representation. Closures do not.
