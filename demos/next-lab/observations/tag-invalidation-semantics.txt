@@ -1,0 +1,34 @@
+# produced: 2026-08-14T11:41:33.426Z; next@16.3.0; BASE=http://127.0.0.1:3015
+# method: progressive-enhancement multipart POST to /tags (Origin set)
+# cached read warmed before each write (second GET << 180ms db delay)
+# updateAction=40c921403d95903be269b505032df48ba45a16341f
+# revalidateAction=404034cf7c2a371de3b00e9752738c755250eecbab
+
+## setPriceWithUpdate (updateTag)
+warm_confirm: after_reset_ms=202.6 second_get_ms=4.4 warm=true before_cents=2900
+before_cents: 2900
+action_response_cents: 3100 (http=200, ms=245.3)
+next_request_cents: 3100 (ms=206.3)
+
+## setPriceWithRevalidate (revalidateTag(plans, max))
+warm_confirm: after_reset_ms=198.1 second_get_ms=4.4 warm=true before_cents=2900
+before_cents: 2900
+action_response_cents: 3300 (http=200, ms=244.8)
+next_request_cents: 2900 (ms=3.1)
+next_request_2_cents: 3300 (ms=3.6)
+next_request_3_cents: 3300 (ms=3.9)
+
+## six data points
+| function | before | action response | next request |
+| --- | --- | --- | --- |
+| updateTag | 2900 | 3100 | 3100 |
+| revalidateTag(..., 'max') | 2900 | 3300 | 2900 |
+
+## interpretation
+Both action-response HTML bodies rendered the **new** price (3100 / 3300).
+The SWR distinction appeared on the **next GET** after revalidateTag: that
+request was fast (3.1ms) and still showed the **old** 2900; a following GET
+then showed 3300. updateTag's next GET showed 3100 and was slow (~206ms) —
+blocking recompute. Behaviour is **not identical**; the divergence is real,
+but under progressive-enhancement form POST it shows up on the subsequent
+request rather than in the action response HTML itself.

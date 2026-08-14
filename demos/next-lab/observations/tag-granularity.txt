@@ -1,0 +1,44 @@
+# produced: 2026-08-14; next@16.3.0; next build && next start -p 3015
+# reads via dynamic route handlers (await connection()) so prerendered HTML cannot mask hits
+
+## C.1 Granularity — product:aeron-chair vs product:standing-desk
+GET /api/granularity-read (calls getProduct for each slug)
+
+cold:  aeron_ms=126.4  desk_ms=121.8
+warm:  aeron_ms=0.9    desk_ms=0.3
+POST /api/invalidate-product-tag {"tag":"product:aeron-chair"} with revalidateTag(tag, {expire:0})
+after: aeron_ms=121.6 (MISS)  desk_ms=0.9 (HIT)
+second: aeron_ms=0.4  desk_ms=0.2
+
+finding: invalidating one product tag does **not** drop the other. Per-slug tags are granular.
+
+## C.2 Propagation — outer tagged `outer` calling inner tagged `inner`
+GET /api/nesting-read → getOuterCallingInner() → getInnerTagged()
+Inner stamp is module state bumped only by the invalidate-inner probe.
+
+cold: stamp=4 outerAt=…04.096Z ms=182.5
+warm: stamp=4 outerAt=…04.096Z ms=0.25
+POST invalidate-inner (bump stamp to 5, revalidateTag('inner', {expire:0}))
+after: stamp=5 outerAt=…04.283Z ms=181.5
+
+finding: invalidating **inner** refreshed **outer** as well (new outerGeneratedAt, new
+inner stamp, ~180ms miss). This is **not** the composition trap the draft assumed —
+the outer entry did not keep serving a result built from stale inner data.
+Likely mechanism: the outer entry collects the inner tag when it calls the inner
+cached scope, so expiring `inner` expires the outer entry too.
+
+Control: revalidateTag('outer', {expire:0}) after that → outer recomputes quickly
+(~1ms) while reusing the warm inner HIT (same inner generatedAt) — outer and inner
+are distinct entries; only the tag sets overlap via composition.
+
+## C.3 revalidatePath vs tagged data
+Warm GET /api/plans-read → proCents=2900 ms=181 then ms=0.22
+POST /api/revalidate-path-probe {cents:4400, path:'/tag-path-probe'}
+  (writes store to 4400, calls revalidatePath only — no tag invalidation)
+plans-read after: proCents=2900 ms=0.26  (tagged entry survived)
+/tag-path-probe HTML after: data-price-cents=2900
+Control: revalidateTag('plans', {expire:0}) → plans-read proCents=4400 ms=180.9
+
+finding: revalidatePath does **not** invalidate the tagged `plans` entry. The route
+can re-render and still embed the cached tagged value. Tag invalidation is required
+to observe the write.

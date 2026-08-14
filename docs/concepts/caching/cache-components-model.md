@@ -438,7 +438,7 @@ export async function getPlans() {
   'use cache'
   cacheLife('days')
   cacheTag('plans')
-  return db.plans.findMany()
+  return db.mutablePlans.findMany()
 }
 ```
 
