@@ -666,6 +666,7 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 1, 2, 7, 8, 9
 - [`foundations/rules-of-the-server-boundary`](./rules-of-the-server-boundary.md) — the enforcement matrix
 - [`rendering/client-side-rendering`](../rendering/client-side-rendering.md) — the fourth answer
 - [`caching/user-a-sees-user-b-data`](../../recipes/caching/user-a-sees-user-b-data.md) — the leak class in full
+- [`reactjs-concepts` → `rendering/how-react-renders`](../../../../reactjs-concepts/docs/concepts/rendering/how-react-renders.md) — render and commit, if the React side is unfamiliar
 
 ---
 
