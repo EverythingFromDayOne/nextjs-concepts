@@ -21,7 +21,7 @@ Numbering = reading order. No revision-1 (42-article) numbering survives here.
 | --- | --- | --- | --- |
 | 1 | `foundations/thinking-in-the-app-router` | 🟢 | Draft on disk; authored blocks; see demo backlog |
 | 2 | `foundations/server-and-client-components` | 🟢 | `status: draft`; `.tpl`-native (session 8); payload cost + silent conversion measured |
-| 3 | `foundations/file-conventions-and-the-route-tree` | ⚪ | |
+| 3 | `foundations/file-conventions-and-the-route-tree` | 🟢 | `status: draft`; measured nesting order confirms bundled docs' text hierarchy (not a contradiction); `'use client'` on `error.tsx` enforced at build; build-time throw always hard-fails regardless of boundaries, deferred throw surfaces only at request time as a digest; layout-throw antipattern confirmed |
 | 4 | `foundations/build-time-request-time-and-the-client` | 🟢 | `status: review`; Exp1–4 measured; severity claim falsified+rewritten; sync-IO one-rule |
 | 5 | `rendering/static-shell-and-streaming` | 🟢 | `status: review`; predictions measured; TTFB framing corrected |
 | 6 | `caching/cache-components-model` | 🟢 | `status: review`; `.md.tpl` extraction pipeline proven |
