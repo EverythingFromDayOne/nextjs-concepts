@@ -5,7 +5,7 @@ export async function getPlans() {
   'use cache'
   cacheLife('days')
   cacheTag('plans')
-  return db.plans.findMany()
+  return db.mutablePlans.findMany()
 }
 
 // uid is an ARGUMENT. It is therefore in the compiler-derived key, which

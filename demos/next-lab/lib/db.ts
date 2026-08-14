@@ -49,6 +49,24 @@ function after<T>(ms: number, value: T): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
 }
 
+const PLAN_PRICES: Record<string, number> = {
+  free: 0,
+  pro: 2900,
+  team: 9900,
+}
+
+export const mutablePlans = {
+  findMany: () =>
+    after(
+      180,
+      PLANS.map((p) => ({ ...p, priceCents: PLAN_PRICES[p.id] ?? p.priceCents })),
+    ),
+  setPrice: async (id: string, cents: number) => {
+    await after(50, null)
+    PLAN_PRICES[id] = cents
+  },
+}
+
 export const db = {
   products: {
     findBySlug: (slug: string) => after(120, PRODUCTS.find((p) => p.slug === slug) ?? null),
@@ -63,6 +81,7 @@ export const db = {
   plans: {
     findMany: () => after(180, PLANS),
   },
+  mutablePlans,
   usage: {
     forUser: (uid: string) => after(400, USAGE[uid] ?? { uid, requests: 0, storageMb: 0 }),
   },

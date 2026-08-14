@@ -1,0 +1,35 @@
+# produced: 2026-08-14; next@16.3.0; next build && next start -p 3015
+
+## Claim 1 — updateTag is Server-Actions-only
+
+### Route Handler — POST /api/update-tag-probe
+phase: **runtime**
+http: 500
+message: updateTag can only be called from within a Server Action. To invalidate cache tags in Route Handlers or other contexts, use revalidateTag instead. See more info here: https://nextjs.org/docs/app/api-reference/functions/updateTag
+
+### Server Component — GET /update-tag-sc-probe (export const instant = false)
+phase: **runtime** (build succeeded with instant=false; error thrown when the page rendered)
+data-threw: yes
+message: Route /update-tag-sc-probe used "updateTag plans" during render which is unsupported. To ensure revalidation is performed consistently it must always happen outside of renders and cached functions.
+
+Note: the SC error text is the render-phase guard, not the same "Server Action only" string as the Route Handler. Both fail; neither succeeds outside a Server Action.
+
+## Claim 2 — revalidateTag's profile argument is required
+
+### TypeScript (tsc --noEmit, single-arg call, no @ts-expect-error)
+phase: **typecheck / build** (next build runs TypeScript)
+error: TS2554: Expected 2 arguments, but got 1.
+(app/api/revalidate-tag-no-profile/route.ts)
+
+### Runtime — POST /api/revalidate-tag-no-profile with @ts-expect-error
+phase: **runtime**
+http: 200
+body: {"ok":true,"phase":"runtime","message":"revalidateTag(tag) accepted at runtime (no throw)"}
+server log warning:
+  "revalidateTag" without the second argument is now deprecated, add second argument of "max" or use "updateTag". See more info here: https://nextjs.org/docs/messages/revalidate-tag-single-arg
+
+## vs articles 6 / 9
+- "updateTag is Server-Actions-only" — **holds**. RH and SC both error at runtime.
+- "revalidateTag profile is required" — **holds at the type level** (TS2554 / next build).
+  **Does not throw at runtime**: single-arg is accepted with a deprecation warning.
+  Articles that imply a runtime failure overstate; the enforcement today is types + warn.
