@@ -239,7 +239,7 @@ each `file:line — reason`.
 
 ### The extraction pipeline
 
-Articles are authored as `.md.tpl` with `{EXTRACT:}` tokens and delivered alongside their demo sources. The `.md` is a build artifact and is never edited by hand. **`.tpl`-native is the standard from article 5 onward** (and for 3, 4, 7, 8+). Articles 1 and 2 remain conversion debt: 1 should be cheap (demos exist); 2 is blocked on a real payload measurement across the stage-2 boundary before convert. The `unsourced-other` count in `verify-code-blocks` should fall toward zero and never grow.
+Articles are authored as `.md.tpl` with `{EXTRACT:}` tokens and delivered alongside their demo sources. The `.md` is a build artifact and is never edited by hand. **`.tpl`-native is the standard from article 5 onward** (and for 3, 4, 7, 8+). Article 2 remains conversion debt: blocked on a real payload measurement across the stage-2 boundary before convert. The `unsourced-other` count in `verify-code-blocks` should fall toward zero and never grow.
 
 Prose is authored in `<article>.md.tpl`. **Code never is.** Templates carry `{EXTRACT:<path>#<symbol>}` tokens; `scripts/build-article.py` resolves them into a provenance comment plus a fenced block; `scripts/verify-code-blocks.mjs` re-extracts and compares. Extraction logic lives in exactly one place — `scripts/lib/extract.mjs` — so the builder and verifier cannot disagree. Symbol extracts include the import statements the region actually uses; `#<symbol>-imports` opts out for deliberate fragments.
 
