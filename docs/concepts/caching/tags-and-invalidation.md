@@ -17,7 +17,7 @@ status: draft
 
 > **Lead with this.** A lifetime says how wrong a value may get. A **tag** says who is allowed to make it right again — and Next.js 16 split that into two functions because "make it right" means two different things.
 >
-> `updateTag` is for the user who just made the change and expects to see it. `revalidateTag` is for everyone else, who would rather have a fast answer than a current one. Choosing wrong produces a bug with no error attached: the write succeeded and the screen didn't move.
+> The writer isn't part of this decision. Both functions render fresh data in the action's own response, and neither stores it. What you're choosing is what happens to **the next person to load the page**: `updateTag` makes them wait for a fresh computation; `revalidateTag` hands them the pre-write value instantly and refreshes behind them. **`updateTag` buys correctness with latency. `revalidateTag` buys latency with staleness.** Choosing wrong produces a bug with no error attached: the save looks fine, and the *next* load looks like it didn't happen.
 
 ---
 
@@ -48,6 +48,8 @@ Both functions expire an entry. What separates them is what happens **after** th
 
 Under progressive-enhancement form POST, **both** action-response HTML bodies rendered the new price. The SWR distinction showed up on the **next GET**: `revalidateTag(..., 'max')` still served the warm stale entry (2900, fast); a following GET then showed 3300. `updateTag` made the next GET a blocking recompute (3100, slow).
 
+A follow-up instrumented run pinned down *why* both action responses agree: a module-level compute counter added to `getPlans()` — incremented on every real execution, and baked into the cached return so a hit replays the miss's count — showed the action's own re-render bumping the counter under **both** functions. That render is a real, uncached computation, and it is discarded either way; **a Server Action's re-render does not populate the cache** (see [`use-cache-directive`](./use-cache-directive.md) for this as a general property, not one specific to tags). The counter also settled the propagation question below: the 1st GET's 2900 after `revalidateTag` carried the *same* count as the pre-write warm read — an older entry that survived the action's computation, not a coincidentally-fast recompute — while `updateTag`'s 1st GET carried a *higher* count than the action's, a fresh miss of its own.
+
 So the two functions are not identical — but the divergence is not "middle column of the action response" for this request shape. It is whether the **subsequent** read is allowed to stay stale. That is still the difference between a UI that settles on the write and a UI that flickers old → new (or looks like the save failed if you only watch the first reload).
 
 The reason this needed two functions rather than one flag: the two behaviours have opposite failure modes. Immediate expiry makes the writer wait for a fresh computation. Stale-while-revalidate can make a follow-up read look like the write didn't land. Neither is safe as a default, so Next.js made you pick.
@@ -63,7 +65,15 @@ Measured against the claims shipped (as traced, not measured) in [`cache-compone
 | `revalidateTag('plans')` with no profile | **typecheck / `next build`** | `TS2554: Expected 2 arguments, but got 1` |
 | same single-arg call at runtime (types suppressed) | **runtime** | **Accepted** — HTTP 200 — with a deprecation warning asking for `"max"` or `updateTag` |
 
-**Contradiction to name explicitly:** articles 6 and 9 say the profile argument is required. That is true for TypeScript / `next build`. It is **not** a runtime throw today — single-arg still works and warns. Treat "required" as a type-level requirement plus a deprecation, not as a runtime enforcement.
+**Contradiction to name explicitly:** articles 6 and 9 say the profile argument is required. Corrected here: it's **type-required, runtime-deprecated** — true for TypeScript / `next build` (`TS2554`), not a runtime throw today. The runtime warning, verbatim:
+
+```text
+"revalidateTag" without the second argument is now deprecated, add second
+argument of "max" or use "updateTag". See more info here:
+https://nextjs.org/docs/messages/revalidate-tag-single-arg
+```
+
+**Traced, not measured** (docs + `next@16.3.0` source — not exercised as a separate probe here): a missing profile does not fall back to `'max'`-style stale-while-revalidate. It takes the same immediate-expiry path as `updateTag`. That cuts against the intuition "omitting the argument defaults to the gentler behavior" — omitting it gets you `updateTag` semantics, the *less* forgiving of the two.
 
 The restriction on `updateTag` follows from what it promises. Read-your-own-writes only means something when there *is* a write and a caller waiting on it — which is the shape of a Server Action and not of a Server Component rendering a page.
 
@@ -169,7 +179,7 @@ export async function setPriceWithRevalidate(formData: FormData) {
 }
 ```
 
-Both actions do the same write and differ only in how they invalidate. Which one is correct depends entirely on who is looking.
+Both actions do the same write and render the new price in their own response either way. They differ only in what the *next* request to load the page gets back.
 
 ---
 
@@ -183,11 +193,15 @@ Per entity, named for the thing that changes. `plans` here because a plan edit a
 
 The write has to land before the invalidation, or you expire an entry and immediately rebuild it from the old data. That is a real race and it produces a bug that reproduces about half the time.
 
-### Step 3 — choose the function by who is looking
+### Step 3 — choose the function by what the next reader can afford
 
-**The user who made the change** → `updateTag`. They pressed save; they expect to see it.
+Not by who is looking — the writer sees fresh data in the action's own response either way, so that's not the decision. Ask what the **next** person to load the page can afford:
 
-**Everyone else** → `revalidateTag`. A background sync, a webhook, an admin editing something a thousand people are reading. Nobody is waiting on the specific response, and stale-while-revalidate keeps every one of those thousand reads fast.
+**Can't afford staleness** → `updateTag`. The next request pays a real recomputation, but it's guaranteed current.
+
+**Can afford a moment of staleness in exchange for speed** → `revalidateTag`. The next request gets the pre-write value instantly, and a fresh one lands behind it.
+
+In practice this usually lands on the same calls as "who is looking" — a Server Action the user is about to reload still tends to want `updateTag` — but derive the answer from the next reader's tolerance, not the writer's identity. That's the version that survives composition: a webhook-triggered write and a user-triggered write should get the same function if their readers have the same tolerance for staleness, and "who triggered it" doesn't tell you that.
 
 ### Step 4 — verify the loop
 
@@ -202,10 +216,6 @@ pnpm build && pnpm start
 5. Compare against the measured table above.
 
 Step 1 is the one that invalidates the whole experiment if you skip it.
-
-### Step 5 — check the composition case
-
-If the tagged read is called from *another* cached scope, invalidating the inner tag also refreshed the outer entry in measurement — see the propagation result above. Still check it when you compose: the surprise is over-invalidation of every composer, not a silently stale outer.
 
 ---
 
@@ -246,7 +256,7 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 5, 11.
 | --- | --- | --- |
 | `cacheTag(tag)` | `next/cache` | Inside a cached scope. Multiple tags per scope allowed. |
 | `updateTag(tag)` | `next/cache` | Server Actions only — see the measured restriction above. |
-| `revalidateTag(tag, profile)` | `next/cache` | Profile argument required. Stale-while-revalidate. |
+| `revalidateTag(tag, profile)` | `next/cache` | Stale-while-revalidate. Profile is type-required (TypeScript), runtime-deprecated without it. |
 | `revalidatePath(path)` | `next/cache` | Route-level. Interaction with tagged entries measured above. |
 
 ---
@@ -255,15 +265,15 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 5, 11.
 
 **1. `revalidateTag` in a Server Action the user is watching.** The write lands, the response shows the old value, the user presses save again. `updateTag` is the fix.
 
-**2. Invalidating before the write completes.** Expire, rebuild from old data, and the new value is gone. Reproduces intermittently, which makes it expensive to find.
+**2. Reading the new → old → new sequence as a bug.** Under `revalidateTag`, a writer can watch the value go new → old → new: the action response shows their edit, the next navigation shows the pre-write value, and a later load shows the edit again. Nothing is broken. They saw a render that was never cached, then rejoined everyone else's timeline.
 
-**3. Tagging the page.** `cacheTag('dashboard')` invalidates everything or nothing.
+**3. Invalidating before the write completes.** Expire, rebuild from old data, and the new value is gone. Reproduces intermittently, which makes it expensive to find.
 
-**4. Tagging data you can't invalidate.** A tag on a third-party feed is decoration.
+**4. Tagging the page.** `cacheTag('dashboard')` invalidates everything or nothing.
 
-**5. Shortening a lifetime instead of adding a tag.** Polling, plus a possible loss of the prerender.
+**5. Tagging data you can't invalidate.** A tag on a third-party feed is decoration.
 
-**6. Assuming inner-tag expiry leaves outer entries stale.** Measured the other way: expiring `inner` refreshed the outer scope that called it. The silent failure mode is over-invalidation of composers, not a stale outer built from a fresh inner.
+**6. Shortening a lifetime instead of adding a tag.** Polling, plus a possible loss of the prerender.
 
 **7. Assuming `revalidatePath` covers tagged data.** Measured: the path re-rendered and still embedded the warm tagged `plans` value until `revalidateTag` / `updateTag` ran.
 
@@ -284,12 +294,12 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 5, 11.
 ## Summary
 
 - A lifetime bounds staleness; a **tag** says who can end it early.
-- `updateTag` is **read-your-own-writes** and is restricted to Server Actions. `revalidateTag` is **stale-while-revalidate**; its profile argument is required by TypeScript (runtime still accepts single-arg with a deprecation warning).
-- The measured difference under form POST: both action responses showed the new value; **`revalidateTag(..., 'max')` still served the old value on the next GET** while `updateTag` did not.
+- The writer isn't part of the decision — both functions render fresh data in the action's own response. What you're choosing is what the **next reader** gets: `updateTag` makes them wait for a fresh computation; `revalidateTag` hands them the pre-write value and refreshes behind them.
+- `updateTag` is **read-your-own-writes** and is restricted to Server Actions. `revalidateTag` is **stale-while-revalidate**; its profile argument is type-required by TypeScript (runtime still accepts single-arg with a deprecation warning, and — traced, not measured — a missing profile behaves like `updateTag`'s immediate expiry, not like `'max'`).
+- The measured difference under form POST: both action responses showed the new value; **`revalidateTag(..., 'max')` still served the old value on the next GET** while `updateTag` did not. An instrumented compute counter confirmed the mechanism: the action's re-render is a real, discarded miss under both functions.
 - Tags name **entities**, not pages. The test is whether you can name the write.
 - **Long lifetime plus a tag** beats a short lifetime: precise instead of polling, and it stays above the prerender thresholds.
 - Invalidate **after** the write lands, or you rebuild from stale data.
-- An inner tag consumed by an outer cached scope is collected onto that outer entry — expiring the inner refreshes the outer too.
 - `revalidatePath` does not drop tagged entries; tag invalidation is still required for the write to show up.
 
 ---
@@ -316,4 +326,4 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 5, 11.
 
 `demos/next-lab/lib/catalog.ts`, `lib/billing.ts`, `lib/status.ts`, `lib/db.ts`, `demos/next-lab/app/tags/`, and the capture files in `demos/next-lab/observations/`.
 
-> **Verification status.** Verified against `next@16.3.0`. **Measured this session** (`observations/tag-invalidation-semantics.txt`, `tag-scope-restrictions.txt`, `tag-granularity.txt`): `updateTag` vs `revalidateTag(..., 'max')` on a warm tagged read — not identical; under progressive-enhancement form POST both action responses showed the new price and the SWR stale read appeared on the **next GET**; `updateTag` from a Route Handler and from a Server Component render both fail at **runtime** (different error strings); `revalidateTag` without a profile fails **typecheck** (`TS2554`) but is accepted at runtime with a deprecation warning — **softening the "profile required" claim in articles 6/9 to type-level + warn**; per-slug tags are granular; **inner-tag expiry refreshes an outer composer** (falsifying the draft "stale outer" trap); `revalidatePath` does not invalidate tagged `plans` entries. Every code block is extracted.
+> **Verification status.** Verified against `next@16.3.0`. **Measured this session** (`observations/tag-invalidation-semantics.txt`, `tag-scope-restrictions.txt`, `tag-granularity.txt`): `updateTag` vs `revalidateTag(..., 'max')` on a warm tagged read — not identical; under progressive-enhancement form POST both action responses showed the new price and the SWR stale read appeared on the **next GET**; `updateTag` from a Route Handler and from a Server Component render both fail at **runtime** (different error strings); `revalidateTag` without a profile fails **typecheck** (`TS2554`) but is accepted at runtime with a deprecation warning — **softening the "profile required" claim in articles 6/9 to type-level + warn**; per-slug tags are granular; **inner-tag expiry refreshes an outer composer** (falsifying the draft "stale outer" trap — the trap itself has been removed from Common mistakes, the walkthrough, and the Summary; it survives only as the measurement above). **Corrected in a follow-up pass, same session:** this article's own framing was also wrong. It described `updateTag` vs `revalidateTag` as a writer-visibility choice ("the user who made the change" vs "everyone else"); an instrumented compute counter on `getPlans()` falsified that — both functions render fresh data in the action's own response, and the counter proved that render is a real, uncached computation discarded either way under both functions. The same counter is what settled the propagation measurement above: timing alone couldn't distinguish a stale survivor from a coincidentally-fast recompute. The mechanism section and the walkthrough's decision rule (step 3) are rebuilt on **reader cost**, not writer identity. Every code block is extracted.
