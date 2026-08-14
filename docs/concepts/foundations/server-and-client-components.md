@@ -9,15 +9,17 @@ related:
   - mutations/server-functions
 next_baseline: "16.3"
 verified_against: next@16.3.0
-verified_on: 2026-08-09
+verified_on: 2026-08-14
 status: draft
 ---
 
 # Server and Client Components
 
-> **Lead with this.** `'use client'` does not mean "runs on the client." It means **"this module is an entry point into the client module graph."** Two consequences follow, and between them they explain every rule in this article: the directive spreads through `import`, never through JSX children; and Client Components still render on the server, then hydrate. If you have been reading the directive as "make this interactive," swap in "add this module and everything it imports to the browser bundle" and most of the confusion evaporates.
+> **Lead with this.** `'use client'` does not mean "runs on the client." It means **"this module is an entry point into the client module graph."** The directive spreads through `import` and never through JSX children — which is why a Server Component can render *inside* a Client Component but cannot be imported by one.
+>
+> And the failure you are most likely to hit is the one that doesn't fail. Import a Server Component that happens to touch nothing server-only, and it silently becomes a Client Component: bundled, shipped, hydrated, and working. Nothing tells you.
 
-This is the article [`reactjs-concepts`](../../../../reactjs-concepts/docs/roadmap.md) deferred when it fenced RSC as "coverage happens via Next.js App Router, since that's where RSC is actually usable in production." This is that coverage.
+This is the article [`reactjs-concepts`](../../../../reactjs-concepts/docs/roadmap.md) deferred when it fenced RSC as "coverage happens via Next.js App Router, since that's where RSC is actually usable in production."
 
 ---
 
@@ -25,35 +27,49 @@ This is the article [`reactjs-concepts`](../../../../reactjs-concepts/docs/roadm
 
 Your app has **one source tree and two module graphs**.
 
-The **server graph** is everything reachable from the route tree without crossing a `'use client'` file. It runs on the server only. It never ships to the browser. It can touch the database, read secrets, and `await` freely.
+The **server graph** is everything reachable from the route tree without crossing a `'use client'` file. It runs on the server only. It never ships. It can touch the database, read secrets, and `await` freely.
 
 The **client graph** starts at every file carrying `'use client'` and extends through everything those files import. It is bundled, shipped, parsed, and executed in the browser — and, first, executed on the server to produce initial HTML.
 
-The directive is the seam between the two graphs. It is placed on a *file*, before any imports, and the exports of that file become entry points.
+The directive is the seam. It goes on a *file*, before any imports, and that file's exports become entry points.
 
+<!-- extract: demos/next-lab/app/products/[slug]/add-to-cart.tsx -->
 ```tsx
 'use client'
 
+// client: owns the quantity input's local state
 import { useState } from 'react'
+import { addToCart } from './actions'
 
-export function QuantityPicker({ max }: { max: number }) {
+export function AddToCart({ productId }: { productId: string }) {
   const [qty, setQty] = useState(1)
-  // ...
+
+  return (
+    <form action={addToCart}>
+      <input type="hidden" name="productId" value={productId} />
+      <input
+        type="number"
+        name="qty"
+        min={1}
+        value={qty}
+        onChange={(e) => setQty(Number(e.target.value))}
+      />
+      <button type="submit">Add to cart</button>
+    </form>
+  )
 }
 ```
 
-You do **not** repeat the directive in every file underneath. A file imported by a Client Component is already in the client graph — the directive would be redundant. You add it only where a Server Component renders directly into client-land.
+You do **not** repeat it in every file underneath. A file imported by a Client Component is already in the client graph. You add the directive only where a Server Component renders directly into client-land.
 
 ### The two things everyone gets wrong
 
-**1. `'use client'` is not "client-only."** Client Components are server-rendered to HTML on the first request, exactly like every React component in every SSR framework since 2016, and *then* hydrated. The directive controls **where the module lives**, not **where it executes**. Truly client-only behavior — reading `window`, measuring the DOM — still needs an effect or a client-only dynamic import.
+**1. `'use client'` is not "client-only."** Client Components are server-rendered to HTML on the first request, exactly like every SSR framework since 2016, and *then* hydrated. The directive controls **where the module lives**, not **where it executes**. Truly client-only behavior — reading `window`, measuring the DOM — still needs an effect or a client-only dynamic import.
 
-**2. The directive spreads through `import`, not through JSX.** This is the mechanical fact that makes composition work, and it is worth stating precisely:
+**2. The directive spreads through `import`, not through JSX.**
 
-- A component you **import** into a Client Component joins the client graph. It gets bundled. If it was a Server Component doing database work, it will now break.
-- A component you receive as **`children`** (or any other element prop) does *not* join the client graph. It was rendered on the server and arrives as output — the Client Component only decides *where to put it*, never *how to produce it*.
-
-So a Server Component can render inside a Client Component. It just cannot be imported by one.
+- A component you **import** into a Client Component joins the client graph. It gets bundled.
+- A component you receive as **`children`** does *not*. It was rendered on the server and arrives as output — the Client Component only decides *where to put it*, never *how to produce it*.
 
 ---
 
@@ -61,80 +77,188 @@ So a Server Component can render inside a Client Component. It just cannot be im
 
 ### The RSC payload is not HTML
 
-When the server renders a route, it produces two things: streamed HTML for first paint, and an **RSC payload** — a serialized description of the rendered tree.
+When the server renders a route it produces two things: streamed HTML for first paint, and an **RSC payload** — a serialized description of the rendered tree.
 
-In that payload, Server Components have already collapsed into their output: elements, text, attributes. There is nothing left to run. Client Components are different. They appear as a **client reference**: a module id, an export name, and the props they were given.
+In that payload, Server Components have already collapsed into their output: elements, text, attributes. Nothing left to run. Client Components are different. They appear as a **client reference**: a module id, an export name, and the props they were given.
 
 ```
-// conceptually, one node in the payload
 ["$", "@42#QuantityPicker", null, { "max": 10 }]
       └─ module id + export        └─ serialized props
 ```
 
-The browser runtime reads that reference, resolves module 42 from the client bundle, and mounts `QuantityPicker` with those props.
+The browser resolves module 42 from the client bundle and mounts the component with those props.
 
-Three real consequences fall directly out of this representation:
+Two consequences follow directly from that format, and one of them is measured below.
 
-**Props are serialized into the payload on every render.** They are not a one-time hydration cost. Every navigation that re-renders that boundary re-serializes them. Passing an entire 400-row dataset into a Client Component to render a table means shipping that dataset in the payload each time — which is why "the page feels heavy and I don't know why" so often traces back to prop size rather than bundle size.
+**Serializability is not a style rule.** A prop must have a representation in the payload. Primitives, plain objects and arrays, `Date`, `Map`, `Set`, typed arrays, `FormData`, JSX elements, and Promises all do. A closure does not — there is no way to send a function body. A class instance does not either, and the framework rejects it rather than degrading:
 
-**Serializability is not a style rule; it is a consequence of the wire format.** A prop must have a representation in the payload. Primitives, plain objects and arrays, `Date`, `Map`, `Set`, typed arrays, `FormData`, JSX elements, and Promises all do. A function does not — there is no way to send a closure, and it is a build-time prerender error, not a silent gap. **Neither is a class instance** — this was measured directly (article 8's enforcement matrix, probe 10) after an earlier draft of this article guessed it would degrade silently into a plain-looking shape with `undefined` methods. It does not: it is caught at the same build step as a bare function, with `Error: Only plain objects, and a few built-ins, can be passed to Client Components from Server Components. Classes or null prototypes are not supported.` Map to a plain object before the boundary and the error disappears.
-
-**Server Functions are the single exception, and for a principled reason.** A `'use server'` function *does* have a wire representation: it is a reference to an addressable endpoint, exactly like a client reference is a reference to an addressable module. That is why the one kind of function that may cross the boundary is the one kind that is really an id in disguise.
-
+<!-- extract: demos/next-lab/antipatterns/class-instance-prop.tsx -->
 ```tsx
-// ❌ no wire representation — closure cannot be sent
-<Button onSubmit={() => save(id)} />
-
-// ✅ a reference to a server endpoint
-<Button action={saveProduct} />   // saveProduct is 'use server'
-```
-
-Related and easy to trip over: you may pass a rendered **element**, but not a component **function**.
-
-```tsx
-// ❌ this is a function
-<Modal content={CartContents} />
-
-// ✅ this is already-rendered output
-<Modal content={<CartContents />} />
-<Modal><CartContents /></Modal>
-```
-
-### Server Components have no client lifecycle
-
-A Server Component is not "a component that runs once." It is a component that **produces payload**. It has no state, no effects, no event handlers, and no presence in the browser at all. Asking "why doesn't my `useEffect` run in this Server Component" is asking why a function that finished executing on another machine has a lifecycle.
-
-The corollary matters more than the rule: **re-rendering a Server Component is a network round trip.** In client React, a re-render is a function call you can afford to be casual about. Here it is a request that returns a fresh payload which React reconciles into the existing tree. Anything you would have solved with a cheap re-render needs a client boundary or a cache entry instead.
-
-### Where the boundary sits relative to the shell
-
-This is where the Cache Components model from [`thinking-in-the-app-router`](./thinking-in-the-app-router.md) meets the client boundary, and it is the part that is genuinely new.
-
-A Client Component lands **in the static shell** if its props are computable during the prerender pass. `<QuantityPicker max={10} />` prerenders fine. `<QuantityPicker max={await getStock(slug)} />` does not, because the prop is request-shaped — the abort happens while computing the prop, above the client boundary entirely.
-
-The same logic explains a rule that otherwise looks like an arbitrary Next.js quirk: client hooks that read the route **suspend during prerendering** when the value isn't knowable yet. `usePathname`, `useParams`, `useSelectedLayoutSegment`, and `useSelectedLayoutSegments` suspend under a route with dynamic params. `useSearchParams` always suspends, because search params are only ever known at request time.
-
-They suspend *wherever they sit* — including inside a nav or breadcrumb in a shared layout, which is how a single `useSearchParams` in a header can cost you the shell for every route beneath it. The fix is the same as everywhere else in this model: push the read down to the smallest leaf and wrap that leaf in `<Suspense>`.
-
-### The blurred edge: calling cached server functions from the client
-
-One boundary that used to be sharp is now deliberately porous. When a cache directive sits at the **top of a file**, that file's exported functions can be imported into a Client Component and called directly. They execute on the server and return their result — behaving much like a Server Function.
-
-```ts
-// lib/search.ts
-'use cache'
-
-export async function searchProducts(query: string) {
-  return db.search(query)
+// antipattern: a class instance passed as a prop from a Server Component to a
+// Client Component. Measured (article 8's enforcement matrix, probe 10): this
+// is a hard, named error — never the silent shape with missing methods an
+// earlier draft assumed — but *when* it fires is phase-dependent. On a route
+// that prerenders this boundary (probe 10a), the build fails. On a route
+// where an unrelated dynamic API already deferred that subtree past the
+// prerender pass (probe 10b, same shape as app/leak-a), the identical
+// violation waits for a real request.
+// fails: build (prerendered subtree) — or runtime, if an unrelated dynamic API already deferred the subtree
+export class Widget {
+  constructor(public name: string) {}
+  getName() {
+    return this.name
+  }
 }
 ```
 
-```tsx
-'use client'
-import { searchProducts } from '@/lib/search'   // legal; runs on the server
+Note the enforcement phase on that file. It is caught when the offending code is *rendered*, which means a prerendered route catches it at build and a postponed subtree does not catch it until a request arrives. See [`rules-of-the-server-boundary`](./rules-of-the-server-boundary.md) for the full matrix — the phase is a property of the route's shape, not of the violation.
+
+**Server Functions are the single exception, for a principled reason.** A `'use server'` function *does* have a wire representation: a reference to an addressable endpoint, exactly as a client reference is a reference to an addressable module. The one kind of function that may cross is the one that is really an id in disguise.
+
+### Props are re-serialized on every render
+
+This is the cost that no bundle report shows, and it is why the boundary's *position* is a performance decision rather than an organisational one.
+
+Props are not a one-time hydration cost. Every render that crosses the boundary re-serializes them into the payload. Passing a dataset to a Client Component to render a list means shipping that dataset on every navigation that re-renders the boundary.
+
+Two shapes, identical visible output, measured — a `Stage2List` receiving the array as a prop (`payload-a-*`) against a `FilterShell`/`ProductRow` pair receiving it as already-rendered `children` (`payload-b-*`), at 40 and 4,000 products:
+
+| Shape | Products | Bundle (`entryJSFiles`) | RSC payload only | Total HTML |
+| --- | ---: | ---: | ---: | ---: |
+| a — prop into `Stage2List` | 40 | 15,100 B | 10,046 B | 14,052 B |
+| a — prop into `Stage2List` | 4,000 | 15,100 B | 553,470 B | 710,896 B |
+| b — `children` through `FilterShell` | 40 | 15,093 B | 7,316 B | 12,269 B |
+| b — `children` through `FilterShell` | 4,000 | 15,093 B | 317,673 B | 581,930 B |
+
+<!-- extract: demos/next-lab/observations/payload-boundary.txt -->
+```text
+# produced: 2026-08-14; next@16.3.0; command: pnpm build; pnpm start; curl -s -o /dev/null -w "%{size_download} %{http_code}" /payload-{a,b}-{40,4000} (twice: HTML, then RSC-only with validateRSCRequestHeaders off)
+## Build table — the four payload routes (from the same `pnpm build` used below)
+Route (app)                    Revalidate  Expire
+├ ○ /payload-a-40
+├ ○ /payload-a-4000
+├ ○ /payload-b-40
+├ ○ /payload-b-4000
+
+## Bundle size — entryJSFiles from page_client-reference-manifest.js (route-owned JS only)
+payload-a-40     entryJSFiles = 15100 B  (static/chunks/3sixitmmlv55t.js, static/chunks/240xgaqo6vdsc.js)
+payload-a-4000   entryJSFiles = 15100 B  (static/chunks/3sixitmmlv55t.js, static/chunks/240xgaqo6vdsc.js)
+payload-b-40     entryJSFiles = 15093 B  (static/chunks/3sixitmmlv55t.js, static/chunks/1yy9_5a_75kt-.js)
+payload-b-4000   entryJSFiles = 15093 B  (static/chunks/3sixitmmlv55t.js, static/chunks/1yy9_5a_75kt-.js)
+
+## Total HTML response size — curl -s -o /dev/null -w "%{size_download} %{http_code}" (production server, no rsc header)
+payload-a-40     14052 B  (HTTP 200)
+payload-a-4000   710896 B  (HTTP 200)
+payload-b-40     12269 B  (HTTP 200)
+payload-b-4000   581930 B  (HTTP 200)
+
+## RSC payload only — curl -H "rsc: 1" against a build with experimental.validateRSCRequestHeaders:false (scratch config, reverted)
+This isolates exactly what crosses the boundary for hydration: the a-shape ships the raw product objects (id, slug, name, description, priceCents) as props; the b-shape ships only the already-rendered `<li>` elements ProductRow produced (name + formatted price, nothing else).
+payload-a-40     10046 B  (HTTP 200)
+payload-a-4000   553470 B  (HTTP 200)
+payload-b-40     7316 B  (HTTP 200)
+payload-b-4000   317673 B  (HTTP 200)
+
+a/b ratio at 40 products: 1.37x (2730 B difference, 68.3 B/product)
+a/b ratio at 4,000 products: 1.74x (235797 B difference, 58.9 B/product)
 ```
 
-Useful, and worth being deliberate about: the docs' own preference is still to call cached functions on the server and pass results down as props. Reach for the direct-call form when the *trigger* is genuinely a client interaction, not to avoid thinking about composition.
+The bundle rows are the control. They barely move — 15,100 B vs 15,093 B, a 7-byte rounding difference regardless of whether the route renders 40 products or 4,000 — because the *code* is nearly the same in both shapes. The RSC-payload column is where the boundary's position shows up: at 40 products the gap is 2,730 B (a is 1.37× b); at 4,000 it's 235,797 B (1.74×). **Report the size honestly: this confirms the direction of the claim, not the dramatic version of it.** Both payloads grow with the product count, because both shapes render the same list — what differs is the per-item overhead. `Stage2List` receives entire product records (`id`, `slug`, `description`, `priceCents`) as props whether or not it reads them; `ProductRow`'s output carries only what it actually rendered, a name and a formatted price. At 40 products that overhead is a few kilobytes, easy to miss next to everything else on the page. At 4,000 it is 236 KB that no bundle report will ever show you, paid again on every re-render that crosses the boundary — not once at load.
+
+### Server Components have no client lifecycle
+
+A Server Component produces payload and is gone. No state, no effects, no event handlers, no browser presence. Asking why `useEffect` doesn't run in one is asking why a function that finished on another machine has a lifecycle.
+
+The corollary matters more than the rule: **re-rendering a Server Component is a network round trip.** In client React a re-render is a function call you can be casual about. Here it is a request returning a fresh payload that React reconciles into the existing tree.
+
+### The silent conversion — the failure most people hit first
+
+Importing a Server Component into a Client Component does not reliably break. What it does is **convert** it.
+
+If the component uses `next/headers`, does unsuspended data access, or otherwise depends on the server, the build fails. If it does none of those — and most presentational components do none of those — it becomes a Client Component and everything keeps working. It is bundled, shipped, hydrated. Nothing in the build output announces that a component you designed to stay on the server is now in the browser, along with everything it imports.
+
+<!-- extract: demos/next-lab/antipatterns/imported-server-component.tsx -->
+```tsx
+// antipattern: a directive-less component that reads a server-only API,
+// reached through a Client Component's import graph. The import itself
+// doesn't error — it silently reclassifies this module as client code — but
+// next/headers has no client-side implementation, so the build fails the
+// moment the reclassified module tries to use it.
+// fails: build
+import { cookies } from 'next/headers'
+
+export async function AccountBadge() {
+  const store = await cookies()
+  return <span>{store.get('plan')?.value ?? 'free'}</span>
+}
+```
+
+That file's `next/headers` import gives it a loud failure. Most components don't have one. Measured against a pair with no server-only content at all — `convert-a` composes `ProductRow` as `children` through `FilterShell` (correct); `convert-b` imports `ProductRow` directly into a client file and renders it there:
+
+<!-- extract: demos/next-lab/observations/silent-conversion.txt -->
+```text
+# produced: 2026-08-14; next@16.3.0; command: pnpm build (convert-a vs convert-b); add import 'server-only' to product-row.tsx; pnpm build again
+## Step 1 — before `server-only`: build both routes, compare bundle rows
+Route (app)                    Revalidate  Expire
+├ ○ /convert-a
+├ ○ /convert-b
+
+convert-a entryJSFiles = 15093 B  (static/chunks/3sixitmmlv55t.js, static/chunks/1yy9_5a_75kt-.js)
+convert-b entryJSFiles = 15367 B  (static/chunks/3sixitmmlv55t.js, static/chunks/40jxhv2dx2n7n.js)
+
+`ProductRow` as its own entry in convert-b's client-reference manifest (clientModules matching "product-row"):
+(none — not a separate module; see whether it is inlined into the importing file below)
+
+## Step 2 — after `import 'server-only'` in product-row.tsx, rebuild
+build exit code: 1
+build FAILED. Relevant output:
+> Build error occurred
+Error: Turbopack build failed with 2 errors:
+./demos/next-lab/app/catalog/product-row.tsx:1:1
+Error: You're importing a module that depends on "server-only" into a React Client Component module. This API is only available in Server Components but one of its parents is marked with "use client", so this module is also a Client Component.
+    Learn more: https://nextjs.org/docs/app/building-your-application/rendering
+> 1 | import 'server-only'
+    | ^^^^^^^^^^^^^^^^^^^^
+  2 |
+  3 | import type { Product } from '@/lib/db'
+---
+./demos/next-lab/app/catalog/product-row.tsx:1:1
+Error: You're importing a module that depends on "server-only" into a React Client Component module. This API is only available in Server Components but one of its parents is marked with "use client", so this module is also a Client Component.
+    Learn more: https://nextjs.org/docs/app/building-your-application/rendering
+> 1 | import 'server-only'
+    | ^^^^^^^^^^^^^^^^^^^^
+  2 |
+  3 | import type { Product } from '@/lib/db'
+  4 | import { formatPrice } from '@/lib/db'
+
+---
+    Learn more: https://nextjs.org/docs/app/building-your-application/rendering
+> 1 | import 'server-only'
+    | ^^^^^^^^^^^^^^^^^^^^
+  2 |
+  3 | import type { Product } from '@/lib/db'
+  4 | import { formatPrice } from '@/lib/db'
+
+Ecmascript file had an error
+```
+
+Both routes build. Neither logs a warning. `convert-b`'s bundle grows by exactly `ProductRow`'s code — 274 B in this demo, inlined into the file that imported it rather than appearing as its own manifest entry — and that bundle diff is the *only* place the conversion shows up, and only if you go looking for it. Adding `import 'server-only'` to `product-row.tsx` turns the identical import into a **named build failure**: `You're importing a module that depends on "server-only" into a React Client Component module`, pointing at the exact line. And because this is a bundler-time import-graph check rather than a React render-time check, the guard is unconditional — unlike the class-instance check above, which only fires when the offending code actually renders and can be deferred to runtime by an unrelated dynamic API upstream, a `server-only` violation fails the build every time, regardless of what else the route does.
+
+That is the failure mode to internalise, because it is the one that does not announce itself — and `server-only` is the one-line fix that makes it announce itself.
+
+### Where the boundary sits relative to the shell
+
+A Client Component lands **in the static shell** if its props are computable during the prerender. `<QuantityPicker max={10} />` prerenders fine. `<QuantityPicker max={await getStock(slug)} />` does not — the abort happens while computing the prop, above the client boundary.
+
+The same logic explains a rule that otherwise looks like a quirk: client hooks that read the route **suspend during prerendering**. `usePathname`, `useParams`, and `useSelectedLayoutSegment(s)` suspend under dynamic params; `useSearchParams` always does, because search params are only known at request time.
+
+They suspend *wherever they sit* — including in a nav or breadcrumb in a shared layout, which is how one `useSearchParams` in a header costs the shell for every route beneath it.
+
+### Calling cached server functions from the client
+
+One boundary is deliberately porous. With a cache directive at the **top of a file**, that file's exports can be imported into a Client Component and called directly. They execute on the server and return their result.
+
+Useful, and worth being deliberate about: the documented preference is still to call cached functions on the server and pass results down. Reach for the direct call when the *trigger* is genuinely a client interaction, not to avoid thinking about composition.
 
 ---
 
@@ -142,63 +266,76 @@ Useful, and worth being deliberate about: the docs' own preference is still to c
 
 The default is Server. You opt into Client, at a leaf, for a stated reason.
 
+<!-- extract: demos/next-lab/app/catalog/product-row.tsx -->
 ```tsx
-// app/products/page.tsx — Server Component (no directive)
-import { getProducts } from '@/lib/catalog'
-import { SortControl } from './sort-control'
+import type { Product } from '@/lib/db'
+import { formatPrice } from '@/lib/db'
 
-export default async function ProductsPage() {
-  const products = await getProducts()
-
+// Server Component. Passed into FilterShell as children, never imported
+// by it — which is why it stays out of the client bundle.
+export function ProductRow({ product }: { product: Product }) {
   return (
-    <section>
-      <SortControl />           {/* client leaf */}
-      <ul>
-        {products.map((p) => <li key={p.id}>{p.name}</li>)}
-      </ul>
-    </section>
+    <li>
+      {product.name} — {formatPrice(product.priceCents)}
+    </li>
   )
 }
 ```
 
+<!-- extract: demos/next-lab/app/catalog/filter-shell.tsx -->
 ```tsx
-// app/products/sort-control.tsx — Client Component
 'use client'
 
-import { useState } from 'react'
+// client: owns the filter text state
+import { createContext, useContext, useState } from 'react'
 
-export function SortControl() {
-  const [order, setOrder] = useState<'asc' | 'desc'>('asc')
+const FilterContext = createContext('')
+export const useFilter = () => useContext(FilterContext)
+
+export function FilterShell({ children }: { children: React.ReactNode }) {
+  const [filter, setFilter] = useState('')
+
   return (
-    <button onClick={() => setOrder(order === 'asc' ? 'desc' : 'asc')}>
-      Sort {order}
-    </button>
+    <FilterContext.Provider value={filter}>
+      <input
+        value={filter}
+        placeholder="Filter…"
+        onChange={(e) => setFilter(e.target.value)}
+      />
+      {children}
+    </FilterContext.Provider>
   )
 }
 ```
 
-The list stays on the server. Only the button ships.
+The rows stay on the server. Only the input ships.
 
 ---
 
 ## Walkthrough — moving a boundary down, in four stages
 
-We will start with the version most people write first, and fix it in stages. The feature: a product list with a client-side text filter.
+The feature: a product list with a client-side text filter.
 
-### Stage 1 — the version that looks reasonable and is wrong
+### Stage 1 — the version that looks reasonable
 
+<!-- extract: demos/next-lab/app/catalog/_stages/stage1-page.tsx -->
 ```tsx
-// app/catalog/page.tsx
 'use client'
 
-import { useState, useEffect } from 'react'
+// STAGE 1 — the version most people write first, preserved to be measured
+// against. Four costs: whole subtree in the client graph, data loads after
+// hydration, an API route that exists only for this page, and an empty shell.
+import { useEffect, useState } from 'react'
+import type { Product } from '@/lib/db'
 
-export default function CatalogPage() {
-  const [products, setProducts] = useState([])
+export function Stage1CatalogPage() {
+  const [products, setProducts] = useState<Product[]>([])
   const [filter, setFilter] = useState('')
 
   useEffect(() => {
-    fetch('/api/products').then((r) => r.json()).then(setProducts)
+    fetch('/api/products')
+      .then((r) => r.json())
+      .then(setProducts)
   }, [])
 
   const visible = products.filter((p) => p.name.includes(filter))
@@ -212,36 +349,31 @@ export default function CatalogPage() {
 }
 ```
 
-Four costs, none of them obvious from reading it:
-
-1. The directive is on the page, so the **entire subtree** is in the client graph.
-2. Data now loads *after* hydration — a waterfall the server didn't have.
-3. You needed a `/api/products` route that exists only to serve your own page.
-4. The shell contains an empty list. There is nothing useful to prerender.
+Four costs, none obvious from reading it: the whole subtree joins the client graph; data loads *after* hydration; you needed an API route that exists only for your own page; and the shell contains an empty list.
 
 ### Stage 2 — server data, client filter
 
-Split the responsibility. The server owns the data; the client owns exactly one piece of state.
-
+<!-- extract: demos/next-lab/app/catalog/_stages/stage2-page.tsx -->
 ```tsx
-// app/catalog/page.tsx — Server Component again
-import { getProducts } from '@/lib/catalog'
-import { FilterableList } from './filterable-list'
+// STAGE 2 — server data, client filter. Waterfall and API route gone, but
+// every product now crosses the boundary as a serialized prop.
+import { getAllProducts } from '@/lib/catalog'
+import { Stage2List } from './stage2-list'
 
-export default async function CatalogPage() {
-  const products = await getProducts()
-  return <FilterableList products={products} />
+export async function Stage2CatalogPage() {
+  const products = await getAllProducts()
+  return <Stage2List products={products} />
 }
 ```
 
+<!-- extract: demos/next-lab/app/catalog/_stages/stage2-list.tsx -->
 ```tsx
-// app/catalog/filterable-list.tsx
 'use client'
 
 import { useState } from 'react'
-import type { Product } from '@/lib/schema'
+import type { Product } from '@/lib/db'
 
-export function FilterableList({ products }: { products: Product[] }) {
+export function Stage2List({ products }: { products: Product[] }) {
   const [filter, setFilter] = useState('')
   const visible = products.filter((p) => p.name.includes(filter))
 
@@ -254,40 +386,26 @@ export function FilterableList({ products }: { products: Product[] }) {
 }
 ```
 
-The waterfall is gone and the API route is gone. But we have traded one problem for another: **every product now crosses the boundary as a prop**, serialized into the payload. At 40 products that is fine. At 4,000 it is the dominant cost on the page, and it will not show up in a bundle-size report.
+The waterfall and the API route are gone. But every product now crosses the boundary as a serialized prop — the cost measured in the payload table above.
 
-### Stage 3 — the slot, so the rows stay on the server
+### Stage 3 — the slot
 
-The rows are not interactive. Only the input is. So let the client component own the *state and the layout*, and receive the rows as already-rendered output.
+The rows are not interactive. Only the input is. So let the client component own the state and the layout, and receive the rows as already-rendered output.
 
+<!-- extract: demos/next-lab/app/catalog/_stages/stage3-page.tsx -->
 ```tsx
-// app/catalog/filter-shell.tsx
-'use client'
+// STAGE 3 — the slot. Rows are rendered on the server and passed through
+// the client boundary as children, so they are never bundled.
+//
+// The trade this makes: the client no longer has the data, so the filter
+// cannot re-filter locally. If instant local filtering is required,
+// stage 2 is correct and the prop cost is the price.
+import { getAllProducts } from '@/lib/catalog'
+import { FilterShell } from '../filter-shell'
+import { ProductRow } from '../product-row'
 
-import { useState, createContext, useContext } from 'react'
-
-const FilterContext = createContext('')
-export const useFilter = () => useContext(FilterContext)
-
-export function FilterShell({ children }: { children: React.ReactNode }) {
-  const [filter, setFilter] = useState('')
-  return (
-    <FilterContext.Provider value={filter}>
-      <input value={filter} onChange={(e) => setFilter(e.target.value)} />
-      {children}
-    </FilterContext.Provider>
-  )
-}
-```
-
-```tsx
-// app/catalog/page.tsx
-import { getProducts } from '@/lib/catalog'
-import { FilterShell } from './filter-shell'
-import { ProductRow } from './product-row'
-
-export default async function CatalogPage() {
-  const products = await getProducts()
+export async function Stage3CatalogPage() {
+  const products = await getAllProducts()
 
   return (
     <FilterShell>
@@ -299,75 +417,78 @@ export default async function CatalogPage() {
 }
 ```
 
-`ProductRow` is a Server Component. It is rendered on the server and passed into `FilterShell` as `children`, so it is never imported into the client graph and never bundled. The provider wraps server-rendered output — legal, and the reason `children` exists as an escape valve.
+`ProductRow` is a Server Component, rendered on the server and passed in as `children`, so it never enters the client graph.
 
-**Be honest about the trade this makes.** The rows no longer re-filter on the client, because the client no longer has the data. If the filter must be instantaneous and local, Stage 2 is the correct answer and the prop cost is the price. If the filter should live in the URL and re-query the server, this is the right shape and the next step is a `searchParams`-driven query. Naming which one you need is the actual design decision; the composition pattern is just the mechanism.
+**Be honest about the trade.** The rows no longer re-filter on the client, because the client no longer has the data. If the filter must be instantaneous and local, **stage 2 is correct, and the measured payload gap — 1.37×–1.74× larger than stage 3's shape, not an order of magnitude — is the price.** If the filter belongs in the URL and should re-query the server, this is the right shape. Naming which one you need is the design decision; the composition pattern is just the mechanism.
 
 ### Stage 4 — streaming a promise across the boundary
 
-There is a third position between the two, useful when the client genuinely needs the data but shouldn't block on it: pass the **unresolved promise** as a prop and unwrap it with `use()`.
+Between the two: pass the **unresolved promise** and unwrap it with `use()`.
 
+<!-- extract: demos/next-lab/app/catalog/page.tsx -->
 ```tsx
-// app/catalog/page.tsx
 import { Suspense } from 'react'
-import { getProducts } from '@/lib/catalog'
+import { getAllProducts } from '@/lib/catalog'
 import { FilterableList } from './filterable-list'
 
 export default function CatalogPage() {
-  const productsPromise = getProducts()   // not awaited
+  // Not awaited. The promise crosses the client boundary and is unwrapped
+  // with use() on the other side, so the page never blocks.
+  const productsPromise = getAllProducts()
 
   return (
-    <Suspense fallback={<ListSkeleton />}>
+    <Suspense fallback={<p aria-busy="true">Loading catalog…</p>}>
       <FilterableList products={productsPromise} />
     </Suspense>
   )
 }
 ```
 
+<!-- extract: demos/next-lab/app/catalog/filterable-list.tsx -->
 ```tsx
 'use client'
+
+// client: owns filter state AND unwraps a streamed promise
 import { use, useState } from 'react'
+import type { Product } from '@/lib/db'
+import { formatPrice } from '@/lib/db'
 
 export function FilterableList({ products }: { products: Promise<Product[]> }) {
   const list = use(products)
   const [filter, setFilter] = useState('')
-  // ...
+  const visible = list.filter((p) =>
+    p.name.toLowerCase().includes(filter.toLowerCase())
+  )
+
+  return (
+    <>
+      <input
+        value={filter}
+        placeholder="Filter…"
+        onChange={(e) => setFilter(e.target.value)}
+      />
+      <ul>
+        {visible.map((p) => (
+          <li key={p.id}>{p.name} — {formatPrice(p.priceCents)}</li>
+        ))}
+      </ul>
+    </>
+  )
 }
 ```
 
-The page component doesn't `await`, so it doesn't block; the boundary streams. Promises are serializable across the boundary precisely so this shape is available.
+The page never awaits, so it never blocks; the boundary streams.
 
 ### Verify the loop
 
 ```bash
 pnpm build
+pnpm start
 ```
 
-Stages 1–3 live under `app/catalog/_stages/` — a private folder — so they are **not routes** and will never appear in the build table. That is intentional (article 23's convention in place). Stage 4 is the live `app/catalog/page.tsx`. To compare stages, temporarily point that page at each stage export and rebuild; do not look for missing `/catalog` rows.
-
-There is no First Load JS column in the 16.3 Turbopack build table, and `app-build-manifest.json` is not emitted. Measure route JS from the client-reference manifest instead:
-
-```bash
-# After a build that mounts the stage under /catalog:
-# sum byte sizes of entryJSFiles for
-# .next/server/app/catalog/page_client-reference-manifest.js
-```
-
-Measured on `next@16.3.0` (route `entryJSFiles` only; shared framework chunk `12_ov47oe8zv7.js` is 14 634 B in each run):
-
-| Stage mounted as `/catalog` | Route-owned chunk | `entryJSFiles` total |
-| --- | ---: | ---: |
-| 1 (`_stages/stage1-page`) | 551 B | 15 185 B |
-| 2 (`_stages/stage2-list`) | 452 B | 15 086 B |
-| 3 (`filter-shell`) | 445 B | 15 079 B |
-
-The deltas are noise at this catalog's size — stage 1 is not a meaningful KB outlier here. The costs that *do* change across stages are graph membership (whole page vs leaf), the data waterfall / API route, shell HTML (inspect `.next/server/app/catalog.html`), and prop/payload size — none of which the First Load column would have shown either. Use `@next/bundle-analyzer` when you need *which module*, not a toy KB table.
-
-Then:
-
-1. Open `.next/server/app/catalog.html` for stage 4 (or a temporarily mounted stage 1 / 3). Stage 1's list is absent from the prerender; stage 3's rows are present.
-2. In Stage 2, inflate the product count to a few thousand and watch the RSC payload size in the network panel — the number no bundle report shows you.
-3. In Stage 3, try to `import { ProductRow }` inside `filter-shell.tsx` and render it directly. Watch it break. That failure is the module-graph rule enforcing itself.
+1. Compare payload bytes across the four shapes, not bundle sizes. The bundle rows are nearly identical.
+2. Read `.next/server/app/catalog.html` — not view-source, which shows a completed stream.
+3. Import `ProductRow` directly inside `filter-shell.tsx` and rebuild. **It will not fail.** Check the bundle rows instead: that is the silent conversion, and the bundle is the only place it shows.
 
 Step 3 is the one that makes `import`-versus-`children` stop being something you memorize.
 
@@ -375,34 +496,36 @@ Step 3 is the one that makes `import`-versus-`children` stop being something you
 
 ## Then vs now
 
-The Server/Client split itself is **stable since Next 13** — the module-graph rule, the serialization constraint, and the `children` escape hatch have not changed mechanism. What changed in 16 is the boundary's relationship to *rendering*, and that is real.
+The Server/Client split is **stable since Next 13** — the module-graph rule, the serialization constraint, and the `children` escape hatch have not changed mechanism. What changed in 16 is the boundary's relationship to *rendering*.
 
 Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 8, 14, 19.
 
 | Aspect | Next 13–15 | Next 16+ | What changed underneath |
 | --- | --- | --- | --- |
-| Whether a Client Component prerenders | Determined by the **route's** classification: if anything de-opted the route, nothing on it was static | Determined per boundary: a Client Component is in the shell iff **its props** are computable at prerender time | Static/dynamic moved from a route-level flag consulted by the build planner to a per-subtree property decided by whether the prerender pass aborts while computing that subtree's inputs. |
-| Route-reading client hooks | Read whatever the route rendering mode allowed; no boundary requirement | `usePathname` / `useParams` / `useSelectedLayoutSegment(s)` suspend under unknown dynamic params; `useSearchParams` always suspends | These hooks stopped being ordinary reads of ambient router state and became **suspendable reads of request-time data**. The prerender pass has no request, so the read has nothing to return and must suspend rather than lie. |
-| Calling server code from a Client Component | Only via a Server Action (`'use server'`) or an API route | Also via importing the exports of a file-level `'use cache'` module and calling them directly | A file-level cache directive now generates the same kind of addressable server reference that `'use server'` does, so a second category of callable acquired a wire representation. |
-| Navigating away from a Client Component | The tree unmounted; `useState`, inputs, and scroll were discarded | React `<Activity>` keeps the tree in `hidden` mode; effects clean up and re-run, state survives | The router stopped destroying the previous tree on navigation. Unmount was previously doing reset work by accident; that work is now explicit. |
-| Client Component optimization | React Compiler via Babel, opt-in | React Compiler via Babel, plus an experimental Rust implementation inside Turbopack (16.3) | Compilation moved from a separate Babel pass that generates and reparses code into the bundler's own pipeline. Behavior is unchanged; build time is the point. |
-| `runtime = 'edge'` for client-heavy routes | Supported | Deprecated; Cache Components requires the Node.js runtime | Runtime selection narrowed. Edge-shaped work moved to `proxy.ts`, which sits *outside* the rendering model entirely. |
+| Whether a Client Component prerenders | Determined by the **route's** classification | Determined per boundary: in the shell iff **its props** are computable at prerender time | Static/dynamic moved from a route-level flag the build planner consulted to a per-subtree property decided by whether the prerender aborts while computing that subtree's inputs. |
+| Route-reading client hooks | Ordinary reads of ambient router state | `usePathname` / `useParams` / `useSelectedLayoutSegment(s)` suspend under dynamic params; `useSearchParams` always | These became **suspendable reads of request-time data**. The prerender has no request, so the read has nothing to return and must suspend rather than lie. |
+| When a boundary violation is caught | At build, if at all | At build *only if the containing subtree is prerendered* | Violations that need React to render the offending code are deferred along with the subtree. An outer dynamic API silences build-time enforcement for everything below it. |
+| Calling server code from a Client Component | Only via `'use server'` or an API route | Also by importing file-level `'use cache'` exports and calling them | A second category of callable acquired a wire representation. |
+| Navigating away | The tree unmounted; state discarded | `<Activity>` keeps it in `hidden` mode; effects clean up and re-run, state survives | The router stopped destroying the previous tree. Unmount was doing reset work by accident; that work is now explicit. |
+| `runtime = 'edge'` | Supported | Deprecated; Cache Components requires Node.js | Runtime selection narrowed. Edge-shaped work moved to `proxy.ts`, outside the rendering model. |
 
 ---
 
 ## Real-world patterns
 
-**Push the boundary to the leaf, and write down why it's there.** A `'use client'` with no comment is a boundary nobody will dare move in six months. `// client: needs useState for the open/closed toggle` costs one line and makes the boundary reviewable.
+**Push the boundary to the leaf, and write down why.** A `'use client'` with no comment is a boundary nobody will dare move in six months.
 
-**Third-party components are boundaries too.** A library component that uses hooks internally but ships without `'use client'` forces you to wrap it in your own client file. That wrapper is a real part of your client graph — audit it like your own code.
+**Guard genuinely server-only modules with `server-only`.** It is the one-line defence against the silent conversion — see the conversion result above for what it changes and when it fires.
 
-**Providers wrap `children`, always.** Theme, query client, session: these go in a client file that takes `children`, and get mounted in a Server Component layout. Done that way, the provider costs you the provider — not the subtree.
+**Watch payload size, not just bundle size.** Bundle size is measured for you on every build — and it barely moved between the two shapes measured above. Payload size is not measured for you, it is per-navigation, and it is where the two shapes actually diverged: modestly at dozens of rows, by hundreds of kilobytes at thousands. When a page feels heavy and the bundle report looks fine, measure the payload instead of guessing at its size.
 
-**Prefer server composition to client context for server data.** If the reason you reached for context is "I don't want to prop-drill this down six levels," and the value comes from the server, the answer is usually server composition, or — for values above the root layout like `[lang]` — `next/root-params`, which reads them from any Server Component without prop-drilling at all.
+**Map at the boundary.** ORM models, `Decimal`, custom value types: convert to plain objects deliberately, in one place per entity.
 
-**Watch prop size, not just bundle size.** Bundle size is measured for you and reported on every build. Payload size is not, and it is per-navigation. When a page feels heavy and the bundle report looks fine, measure the payload.
+**Providers wrap `children`, always.** Done that way, the provider costs you the provider — not the subtree.
 
-**Keep the boundary out of shared layouts.** The same lesson as runtime data reads: one client hook in a header multiplies across every route beneath it.
+**Third-party components are boundaries too.** A library component using hooks without shipping `'use client'` forces you to wrap it. That wrapper is part of your client graph; audit it like your own code.
+
+**Keep the boundary out of shared layouts.** One client hook in a header multiplies across every route beneath it.
 
 ---
 
@@ -410,82 +533,73 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 8, 14, 19.
 
 | Surface | Where it goes | What it does |
 | --- | --- | --- |
-| `'use client'` | Top of a file, before imports | Declares an entry point into the client module graph. Its exports may be rendered directly by Server Components. |
-| `'use server'` | Top of a file, or top of a function | Marks exported async functions as remotely callable Server Functions. **Not** the opposite of `'use client'`. |
-| `'use cache'` (file level) | Top of a file | Exports become cached server functions; may also be imported and called from Client Components. |
-| `children` / element props | Server Component → Client Component | Passes already-rendered server output through a client boundary without bundling it. |
-| `Promise<T>` as a prop | Server Component → Client Component | Streams; unwrap on the client with `use()`. |
-| `use(promise)` | `react` | Unwraps a promise inside a Client Component; suspends until it resolves. |
-| `useSearchParams` | Client Component | Always suspends during prerendering. Requires a `<Suspense>` boundary. |
-| `next/root-params` | Server Components | Reads params defined above the root layout without prop-drilling. |
+| `'use client'` | Top of a file, before imports | Declares an entry point into the client module graph. |
+| `'use server'` | Top of a file or function | Marks exported async functions as remotely callable. **Not** the opposite of `'use client'`. |
+| `'use cache'` (file level) | Top of a file | Exports become cached server functions, importable and callable from Client Components. |
+| `server-only` | `import 'server-only'` | Turns a silent conversion into an error. |
+| `children` / element props | Server → Client | Passes rendered server output through a client boundary without bundling it. |
+| `Promise<T>` as a prop | Server → Client | Streams; unwrap with `use()`. |
+| `useSearchParams` | Client Component | Always suspends during prerendering. |
+| `next/root-params` | Server Components | Reads params above the root layout without prop-drilling. |
 
 ---
 
 ## Common mistakes
 
-**1. Reading `'use client'` as "client-only."** It still server-renders. Code that touches `window` at module scope or during the first render will still break, and the error will be a hydration error rather than the "undefined is not an object" you expected.
+**1. Reading `'use client'` as "client-only."** It still server-renders. Module-scope `window` access breaks with a hydration error, not the reference error you expected.
 
-**2. Putting the directive on `page.tsx`.** The most expensive single line in a Next.js codebase. It pulls the whole route into the client graph and pushes data fetching to after hydration.
+**2. Putting the directive on `page.tsx`.** The most expensive single line in a Next.js codebase.
 
-**3. Passing a function as a prop.**
+**3. Importing a Server Component into a Client Component.** The dangerous case is the one that **works** — no server-only content, so it silently becomes a Client Component and ships. Pass it as `children`, and use `server-only` where the module must never cross.
 
-```tsx
-// ❌ Functions cannot be passed to Client Components
-<ProductCard onSave={() => save(product.id)} />
-```
-Either the handler belongs inside the client component, or it is a Server Function marked `'use server'`.
+**4. Passing a function as a prop.** No wire representation. Either the handler belongs inside the client component, or it is a Server Function.
 
-**4. Importing a Server Component into a Client Component** and expecting it to stay on the server. The import is the thing that moves it. Pass it as `children` or an element prop instead.
+**5. Passing a class instance.** Rejected — and *when* you find out depends on whether the subtree was prerendered. Map to a plain object at the boundary.
 
-**5. Passing a component function where an element is expected.** `<Modal content={CartContents} />` sends a function; `<Modal content={<CartContents />} />` sends output. The error message points at serialization and the cause is composition.
+**6. Shipping the dataset to render it.** If a Client Component receives an array only to map it into non-interactive markup, the rows belong on the server behind a `children` slot. The cost shows up in the payload table, not the bundle report — measured at 1.37×–1.74× here, growing with row count, not a dramatic one-time hit.
 
-**6. Passing a class instance across the boundary.** An ORM model, a `Decimal`, a custom `Money` class — this is a build-time prerender error (`Classes or null prototypes are not supported`), not a silent gap where fields arrive and methods quietly answer `undefined`. Map to a plain object at the boundary, deliberately, or the build simply won't pass.
+**7. `useSearchParams` without a boundary** — especially in a shared header.
 
-**7. Shipping the dataset to render it.** If a Client Component receives an array only to `map` over it into non-interactive markup, the rows belong on the server behind a `children` slot.
+**8. Assuming state resets on navigation.** With `<Activity>`, an open dropdown stays open and a submitted form keeps its `useActionState` result.
 
-**8. `useSearchParams` without a boundary** — and especially in a shared header, where the cost is every route below it.
-
-**9. Assuming state resets on navigation.** With `<Activity>`, an open dropdown stays open and a submitted form keeps its `useActionState` result when the user comes back. Reset explicitly, or derive the state from the URL.
-
-**10. Believing `'use server'` marks a Server Component.** It does not, and nothing does — Server Components are the default and have no directive. `'use server'` marks callable endpoints, which is a different axis entirely.
+**9. Believing `'use server'` marks a Server Component.** It marks callable endpoints. Server Components are the default and have no directive.
 
 ---
 
 ## Exercises
 
-**1. Trace a graph.** Pick a route in an existing app and list every module that ends up in the client bundle. Start at each `'use client'` file and follow imports transitively. Compare your list against the build's chunk output.
+**1. Trace a graph.** Pick a route and list every module that ends up in the client bundle, starting from each `'use client'` file and following imports transitively. Compare against the build's chunk output.
 
-*Hint: the surprises are almost always utility modules imported for one function, and icon libraries imported without tree-shaking.*
+*Hint: the surprises are utility modules imported for one function, and components someone imported instead of slotting.*
 
-**2. Convert a boundary.** Find a Client Component that receives an array of data purely to render it. Restructure it into a `children` slot so the rows stay on the server. Compare `.next/server/app/<route>.html` and the RSC payload size before and after — not a First Load JS column.
+**2. Find a silent conversion.** Search your app for Server Components imported into `'use client'` files. Any that don't error are shipping to the browser. Add `server-only` to one that shouldn't be and see what happens.
 
-*Hint: if the component also filters or sorts that array on the client, you have found a real trade-off rather than a mistake — write down which side you chose and why.*
+**3. Measure a boundary.** Take a Client Component receiving an array purely to render it. Record response bytes, restructure it into a `children` slot, record again.
 
-**3. Break it deliberately.** In the walkthrough's Stage 3, import `ProductRow` directly inside `filter-shell.tsx`. Read the error. Then explain, in one sentence, why the `children` version works when the import version doesn't.
-
-*Hint: the answer is about when the component was rendered, not about where it was declared.*
+*Hint: if it also filters that array on the client, you have found a real trade-off rather than a mistake. Write down which side you chose and why.*
 
 ---
 
 ## Summary
 
-- `'use client'` marks a **module-graph entry point**, not a runtime. The client graph is that file plus everything it imports.
-- Client Components **still render on the server** and then hydrate. The directive controls bundling, not execution.
-- The directive spreads through `import` and **not** through `children` — which is exactly why a Server Component can render inside a Client Component but cannot be imported by one.
-- The RSC payload represents Client Components as module references plus serialized props. Serializability, and prop cost, both follow from that format.
-- Server Functions cross the boundary because a reference to an endpoint has a wire representation. Closures do not.
-- Under Cache Components, a Client Component is in the static shell iff its props are computable at prerender time — and route-reading client hooks suspend when they aren't.
+- `'use client'` marks a **module-graph entry point**, not a runtime. Client Components still render on the server first.
+- The directive spreads through `import` and **not** through `children` — which is why a Server Component can render inside a Client Component but cannot be imported by one.
+- The RSC payload represents Client Components as module references plus serialized props. Serializability and per-render payload cost both follow from that format.
+- **Props are re-serialized on every render.** Boundary position is a bandwidth decision the bundle report cannot see — measured at a modest but real 1.37×–1.74× here, confirming the direction, not a dramatic multiple.
+- Importing a Server Component **converts** it. When it has no server-only content the conversion is silent — the most common and least visible mistake in the model.
+- A class instance is rejected, but *when* depends on whether the containing subtree was prerendered.
+- Server Functions cross because a reference to an endpoint has a wire representation. Closures do not.
 
 ---
 
 ## See also
 
 - [`foundations/thinking-in-the-app-router`](./thinking-in-the-app-router.md) — the shell/hole model this boundary sits inside
-- [`foundations/rules-of-the-server-boundary`](./rules-of-the-server-boundary.md) — the full contract for each scope
-- [`performance/the-client-bundle`](../performance/the-client-bundle.md) — measuring the graph you just traced
+- [`foundations/rules-of-the-server-boundary`](./rules-of-the-server-boundary.md) — the full enforcement matrix, including the phase-dependence
+- [`rendering/static-shell-and-streaming`](../rendering/static-shell-and-streaming.md) — why prerendering decides when violations surface
+- [`performance/the-client-bundle`](../performance/the-client-bundle.md) — measuring the graph you traced
 - [`mutations/server-functions`](../mutations/server-functions.md) — the other side of the boundary
 - [`routing/navigation-and-ui-state`](../routing/navigation-and-ui-state.md) — `<Activity>` and the state that no longer resets
-- [`reactjs-concepts` → `state/context`](../../../../reactjs-concepts/docs/concepts/state/context.md) — what context is and isn't for, before you reach for a provider
 
 ---
 
@@ -495,14 +609,12 @@ Either the handler belongs inside the client component, or it is a Server Functi
 - Next.js — Directives: `use client`, `use server`, `use cache`
 - Next.js — Guides: Interleaving Server and Client Components
 - Next.js — Functions: `next/root-params`, `useSearchParams`
-- Next.js — Messages: URL data in a Client Component outside of Suspense
-- Next.js blog — Next.js 16.3 (2026-08-03)
 - React — `use`, `<Activity>`, Server Components, `'use client'`
 
 ---
 
 ## Demo source
 
-`demos/next-lab/app/catalog/` — stages 1–3 as `app/catalog/_stages/stage{1,2,3}-*.tsx`; stage 4 is `app/catalog/page.tsx`. Re-measure with `demos/next-lab/scripts/measure-catalog-stages.mjs`.
+`demos/next-lab/app/catalog/` including `_stages/`, `demos/next-lab/app/products/[slug]/add-to-cart.tsx`, the two named files in `demos/next-lab/antipatterns/`, `lib/db.ts`'s `makeProducts` generator, and `observations/payload-boundary.txt` and `observations/silent-conversion.txt`. Re-measure with `demos/next-lab/scripts/session8-observe.mjs` (`payload` and `convert` modes) — both scratch route pairs it builds are deleted after each run.
 
-> **Verification status.** Version facts verified 2026-08-09 against the npm registry (`next@16.3.0`, `react@19.2.8`); demo measurements 2026-08-10. **Measured:** no First Load JS column / no `app-build-manifest.json` under Turbopack; route JS via `entryJSFiles` in `page_client-reference-manifest.js` (stage deltas above). Pending: the exact error text for importing a Server Component into a Client Component under Turbopack, and whether the RSC payload node shape in "How it works" should be a real captured payload fragment. Code blocks are **authored, not yet extracted** — replace via `scripts/build-article.py` before promoting out of `draft`.
+> **Verification status.** Verified against `next@16.3.0`. This article **supersedes** the session-2 draft, which contained three claims session 7 measured as wrong: that a class instance degrades silently (it is rejected, with phase depending on prerendering); that importing a Server Component reliably fails (it silently converts when the component has no server-only content); and it did not discuss enforcement phase at all. The payload cost was the article's central claim from the beginning and was **unmeasured until this session** — real, and it holds the direction the article always claimed, but the measured size is moderate (1.37×–1.74×, driven by unused fields riding along in the props, not by data volume in general) rather than the dramatic gap the earlier draft implied without a number attached; the rewrite reports that plainly instead of rounding up. Every code block is extracted.

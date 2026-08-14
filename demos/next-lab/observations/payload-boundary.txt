@@ -1,0 +1,29 @@
+# produced: 2026-08-14; next@16.3.0; command: pnpm build; pnpm start; curl -s -o /dev/null -w "%{size_download} %{http_code}" /payload-{a,b}-{40,4000} (twice: HTML, then RSC-only with validateRSCRequestHeaders off)
+## Build table — the four payload routes (from the same `pnpm build` used below)
+Route (app)                    Revalidate  Expire
+├ ○ /payload-a-40
+├ ○ /payload-a-4000
+├ ○ /payload-b-40
+├ ○ /payload-b-4000
+
+## Bundle size — entryJSFiles from page_client-reference-manifest.js (route-owned JS only)
+payload-a-40     entryJSFiles = 15100 B  (static/chunks/3sixitmmlv55t.js, static/chunks/240xgaqo6vdsc.js)
+payload-a-4000   entryJSFiles = 15100 B  (static/chunks/3sixitmmlv55t.js, static/chunks/240xgaqo6vdsc.js)
+payload-b-40     entryJSFiles = 15093 B  (static/chunks/3sixitmmlv55t.js, static/chunks/1yy9_5a_75kt-.js)
+payload-b-4000   entryJSFiles = 15093 B  (static/chunks/3sixitmmlv55t.js, static/chunks/1yy9_5a_75kt-.js)
+
+## Total HTML response size — curl -s -o /dev/null -w "%{size_download} %{http_code}" (production server, no rsc header)
+payload-a-40     14052 B  (HTTP 200)
+payload-a-4000   710896 B  (HTTP 200)
+payload-b-40     12269 B  (HTTP 200)
+payload-b-4000   581930 B  (HTTP 200)
+
+## RSC payload only — curl -H "rsc: 1" against a build with experimental.validateRSCRequestHeaders:false (scratch config, reverted)
+This isolates exactly what crosses the boundary for hydration: the a-shape ships the raw product objects (id, slug, name, description, priceCents) as props; the b-shape ships only the already-rendered `<li>` elements ProductRow produced (name + formatted price, nothing else).
+payload-a-40     10046 B  (HTTP 200)
+payload-a-4000   553470 B  (HTTP 200)
+payload-b-40     7316 B  (HTTP 200)
+payload-b-4000   317673 B  (HTTP 200)
+
+a/b ratio at 40 products: 1.37x (2730 B difference, 68.3 B/product)
+a/b ratio at 4,000 products: 1.74x (235797 B difference, 58.9 B/product)

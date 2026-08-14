@@ -107,3 +107,18 @@ export const db = {
 export function formatPrice(cents: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
 }
+
+/**
+ * Scaled product generator for the payload-cost measurement (article 2,
+ * session 8). Synchronous and in-memory on purpose — the experiment isolates
+ * the boundary's serialization cost from any caching or latency question.
+ */
+export function makeProducts(n: number): Product[] {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `p${i}`,
+    slug: `product-${i}`,
+    name: `Product ${i}`,
+    description: 'A generated product for payload measurement.',
+    priceCents: 1000 + i,
+  }))
+}

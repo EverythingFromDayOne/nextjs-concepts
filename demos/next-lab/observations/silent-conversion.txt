@@ -1,0 +1,43 @@
+# produced: 2026-08-14; next@16.3.0; command: pnpm build (convert-a vs convert-b); add import 'server-only' to product-row.tsx; pnpm build again
+## Step 1 — before `server-only`: build both routes, compare bundle rows
+Route (app)                    Revalidate  Expire
+├ ○ /convert-a
+├ ○ /convert-b
+
+convert-a entryJSFiles = 15093 B  (static/chunks/3sixitmmlv55t.js, static/chunks/1yy9_5a_75kt-.js)
+convert-b entryJSFiles = 15367 B  (static/chunks/3sixitmmlv55t.js, static/chunks/40jxhv2dx2n7n.js)
+
+`ProductRow` as its own entry in convert-b's client-reference manifest (clientModules matching "product-row"):
+(none — not a separate module; see whether it is inlined into the importing file below)
+
+## Step 2 — after `import 'server-only'` in product-row.tsx, rebuild
+build exit code: 1
+build FAILED. Relevant output:
+> Build error occurred
+Error: Turbopack build failed with 2 errors:
+./demos/next-lab/app/catalog/product-row.tsx:1:1
+Error: You're importing a module that depends on "server-only" into a React Client Component module. This API is only available in Server Components but one of its parents is marked with "use client", so this module is also a Client Component.
+    Learn more: https://nextjs.org/docs/app/building-your-application/rendering
+> 1 | import 'server-only'
+    | ^^^^^^^^^^^^^^^^^^^^
+  2 |
+  3 | import type { Product } from '@/lib/db'
+---
+./demos/next-lab/app/catalog/product-row.tsx:1:1
+Error: You're importing a module that depends on "server-only" into a React Client Component module. This API is only available in Server Components but one of its parents is marked with "use client", so this module is also a Client Component.
+    Learn more: https://nextjs.org/docs/app/building-your-application/rendering
+> 1 | import 'server-only'
+    | ^^^^^^^^^^^^^^^^^^^^
+  2 |
+  3 | import type { Product } from '@/lib/db'
+  4 | import { formatPrice } from '@/lib/db'
+
+---
+    Learn more: https://nextjs.org/docs/app/building-your-application/rendering
+> 1 | import 'server-only'
+    | ^^^^^^^^^^^^^^^^^^^^
+  2 |
+  3 | import type { Product } from '@/lib/db'
+  4 | import { formatPrice } from '@/lib/db'
+
+Ecmascript file had an error

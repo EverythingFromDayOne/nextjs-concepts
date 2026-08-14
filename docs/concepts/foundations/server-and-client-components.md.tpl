@@ -9,7 +9,7 @@ related:
   - mutations/server-functions
 next_baseline: "16.3"
 verified_against: next@16.3.0
-verified_on: 2026-08-11
+verified_on: 2026-08-14
 status: draft
 ---
 
@@ -79,11 +79,18 @@ This is the cost that no bundle report shows, and it is why the boundary's *posi
 
 Props are not a one-time hydration cost. Every render that crosses the boundary re-serializes them into the payload. Passing a dataset to a Client Component to render a list means shipping that dataset on every navigation that re-renders the boundary.
 
-Two shapes, identical visible output, measured:
+Two shapes, identical visible output, measured — a `Stage2List` receiving the array as a prop (`payload-a-*`) against a `FilterShell`/`ProductRow` pair receiving it as already-rendered `children` (`payload-b-*`), at 40 and 4,000 products:
 
-{PAYLOAD_TABLE}
+| Shape | Products | Bundle (`entryJSFiles`) | RSC payload only | Total HTML |
+| --- | ---: | ---: | ---: | ---: |
+| a — prop into `Stage2List` | 40 | 15,100 B | 10,046 B | 14,052 B |
+| a — prop into `Stage2List` | 4,000 | 15,100 B | 553,470 B | 710,896 B |
+| b — `children` through `FilterShell` | 40 | 15,093 B | 7,316 B | 12,269 B |
+| b — `children` through `FilterShell` | 4,000 | 15,093 B | 317,673 B | 581,930 B |
 
-The bundle rows are the control. They barely move, because the *code* is nearly the same in both shapes — what differs is how much data crosses the wire.
+{EXTRACT:demos/next-lab/observations/payload-boundary.txt}
+
+The bundle rows are the control. They barely move — 15,100 B vs 15,093 B, a 7-byte rounding difference regardless of whether the route renders 40 products or 4,000 — because the *code* is nearly the same in both shapes. The RSC-payload column is where the boundary's position shows up: at 40 products the gap is 2,730 B (a is 1.37× b); at 4,000 it's 235,797 B (1.74×). **Report the size honestly: this confirms the direction of the claim, not the dramatic version of it.** Both payloads grow with the product count, because both shapes render the same list — what differs is the per-item overhead. `Stage2List` receives entire product records (`id`, `slug`, `description`, `priceCents`) as props whether or not it reads them; `ProductRow`'s output carries only what it actually rendered, a name and a formatted price. At 40 products that overhead is a few kilobytes, easy to miss next to everything else on the page. At 4,000 it is 236 KB that no bundle report will ever show you, paid again on every re-render that crosses the boundary — not once at load.
 
 ### Server Components have no client lifecycle
 
@@ -99,9 +106,13 @@ If the component uses `next/headers`, does unsuspended data access, or otherwise
 
 {EXTRACT:demos/next-lab/antipatterns/imported-server-component.tsx}
 
-{CONVERSION_RESULT}
+That file's `next/headers` import gives it a loud failure. Most components don't have one. Measured against a pair with no server-only content at all — `convert-a` composes `ProductRow` as `children` through `FilterShell` (correct); `convert-b` imports `ProductRow` directly into a client file and renders it there:
 
-That is the failure mode to internalise, because it is the one that does not announce itself.
+{EXTRACT:demos/next-lab/observations/silent-conversion.txt}
+
+Both routes build. Neither logs a warning. `convert-b`'s bundle grows by exactly `ProductRow`'s code — 274 B in this demo, inlined into the file that imported it rather than appearing as its own manifest entry — and that bundle diff is the *only* place the conversion shows up, and only if you go looking for it. Adding `import 'server-only'` to `product-row.tsx` turns the identical import into a **named build failure**: `You're importing a module that depends on "server-only" into a React Client Component module`, pointing at the exact line. And because this is a bundler-time import-graph check rather than a React render-time check, the guard is unconditional — unlike the class-instance check above, which only fires when the offending code actually renders and can be deferred to runtime by an unrelated dynamic API upstream, a `server-only` violation fails the build every time, regardless of what else the route does.
+
+That is the failure mode to internalise, because it is the one that does not announce itself — and `server-only` is the one-line fix that makes it announce itself.
 
 ### Where the boundary sits relative to the shell
 
@@ -157,7 +168,7 @@ The rows are not interactive. Only the input is. So let the client component own
 
 `ProductRow` is a Server Component, rendered on the server and passed in as `children`, so it never enters the client graph.
 
-**Be honest about the trade.** The rows no longer re-filter on the client, because the client no longer has the data. If the filter must be instantaneous and local, **stage 2 is correct and the payload cost is the price.** If the filter belongs in the URL and should re-query the server, this is the right shape. Naming which one you need is the design decision; the composition pattern is just the mechanism.
+**Be honest about the trade.** The rows no longer re-filter on the client, because the client no longer has the data. If the filter must be instantaneous and local, **stage 2 is correct, and the measured payload gap — 1.37×–1.74× larger than stage 3's shape, not an order of magnitude — is the price.** If the filter belongs in the URL and should re-query the server, this is the right shape. Naming which one you need is the design decision; the composition pattern is just the mechanism.
 
 ### Stage 4 — streaming a promise across the boundary
 
@@ -207,7 +218,7 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 8, 14, 19.
 
 **Guard genuinely server-only modules with `server-only`.** It is the one-line defence against the silent conversion — see the conversion result above for what it changes and when it fires.
 
-**Watch payload size, not just bundle size.** Bundle size is measured for you on every build. Payload is not, and it is per-navigation. When a page feels heavy and the bundle report looks fine, measure the payload.
+**Watch payload size, not just bundle size.** Bundle size is measured for you on every build — and it barely moved between the two shapes measured above. Payload size is not measured for you, it is per-navigation, and it is where the two shapes actually diverged: modestly at dozens of rows, by hundreds of kilobytes at thousands. When a page feels heavy and the bundle report looks fine, measure the payload instead of guessing at its size.
 
 **Map at the boundary.** ORM models, `Decimal`, custom value types: convert to plain objects deliberately, in one place per entity.
 
@@ -246,7 +257,7 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 8, 14, 19.
 
 **5. Passing a class instance.** Rejected — and *when* you find out depends on whether the subtree was prerendered. Map to a plain object at the boundary.
 
-**6. Shipping the dataset to render it.** If a Client Component receives an array only to map it into non-interactive markup, the rows belong on the server behind a `children` slot. The cost is in the payload table, not the bundle report.
+**6. Shipping the dataset to render it.** If a Client Component receives an array only to map it into non-interactive markup, the rows belong on the server behind a `children` slot. The cost shows up in the payload table, not the bundle report — measured at 1.37×–1.74× here, growing with row count, not a dramatic one-time hit.
 
 **7. `useSearchParams` without a boundary** — especially in a shared header.
 
@@ -275,7 +286,7 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 8, 14, 19.
 - `'use client'` marks a **module-graph entry point**, not a runtime. Client Components still render on the server first.
 - The directive spreads through `import` and **not** through `children` — which is why a Server Component can render inside a Client Component but cannot be imported by one.
 - The RSC payload represents Client Components as module references plus serialized props. Serializability and per-render payload cost both follow from that format.
-- **Props are re-serialized on every render.** Boundary position is a bandwidth decision, and the bundle report cannot see it.
+- **Props are re-serialized on every render.** Boundary position is a bandwidth decision the bundle report cannot see — measured at a modest but real 1.37×–1.74× here, confirming the direction, not a dramatic multiple.
 - Importing a Server Component **converts** it. When it has no server-only content the conversion is silent — the most common and least visible mistake in the model.
 - A class instance is rejected, but *when* depends on whether the containing subtree was prerendered.
 - Server Functions cross because a reference to an endpoint has a wire representation. Closures do not.
@@ -305,6 +316,6 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 8, 14, 19.
 
 ## Demo source
 
-`demos/next-lab/app/catalog/` including `_stages/`, `demos/next-lab/app/products/[slug]/add-to-cart.tsx`, the two named files in `demos/next-lab/antipatterns/`, and `observations/payload-boundary.txt` and `observations/silent-conversion.txt`.
+`demos/next-lab/app/catalog/` including `_stages/`, `demos/next-lab/app/products/[slug]/add-to-cart.tsx`, the two named files in `demos/next-lab/antipatterns/`, `lib/db.ts`'s `makeProducts` generator, and `observations/payload-boundary.txt` and `observations/silent-conversion.txt`. Re-measure with `demos/next-lab/scripts/session8-observe.mjs` (`payload` and `convert` modes) — both scratch route pairs it builds are deleted after each run.
 
-> **Verification status.** Verified against `next@16.3.0`. This article **supersedes** the session-2 draft, which contained three claims session 7 measured as wrong: that a class instance degrades silently (it is rejected, with phase depending on prerendering); that importing a Server Component reliably fails (it silently converts when the component has no server-only content); and it did not discuss enforcement phase at all. The payload cost was the article's central claim from the beginning and was **unmeasured until this session** — the table is measured, and if the effect had been small the article would say so. Every code block is extracted.
+> **Verification status.** Verified against `next@16.3.0`. This article **supersedes** the session-2 draft, which contained three claims session 7 measured as wrong: that a class instance degrades silently (it is rejected, with phase depending on prerendering); that importing a Server Component reliably fails (it silently converts when the component has no server-only content); and it did not discuss enforcement phase at all. The payload cost was the article's central claim from the beginning and was **unmeasured until this session** — real, and it holds the direction the article always claimed, but the measured size is moderate (1.37×–1.74×, driven by unused fields riding along in the props, not by data volume in general) rather than the dramatic gap the earlier draft implied without a number attached; the rewrite reports that plainly instead of rounding up. Every code block is extracted.
