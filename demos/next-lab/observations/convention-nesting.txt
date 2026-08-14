@@ -1,0 +1,129 @@
+# produced: 2026-08-14; next@16.3.0; command: pnpm --filter next-lab build && pnpm --filter next-lab start --port 3023; curl -s http://localhost:3023/conventions; curl -s http://localhost:3023/conventions/nested; cat .next/server/app/conventions.html; cat .next/server/app/conventions/nested.html
+
+## 1. /conventions — data-marker elements in document order, with nesting depth
+
+Full response body (curl, streamed request completed), stripped to data-marker
+elements only, in the order they appear in the raw HTML text:
+
+  data-marker="layout"        (depth 0)
+  data-marker="template"      (depth 1 — nested inside layout)
+  data-marker="loading"       (depth 2 — nested inside template, inside the
+                                Suspense boundary loading.tsx creates)
+  data-marker="page"          (arrives later in the same response as a
+                                separate out-of-band chunk, NOT nested inside
+                                the loading text in the DOM tree)
+
+Nesting as actually rendered (verified against the raw HTML tags around each
+marker, not just text order):
+
+  <div data-marker="layout">
+    <div data-marker="template">
+      <Suspense>                          <- one boundary, from loading.tsx
+        (initial: <p data-marker="loading">)
+        (resolved: swapped for the page's own output)
+      </Suspense>
+    </div>
+  </div>
+
+`error.tsx` and `not-found.tsx` never appear in a successful render — they
+are boundaries/fallbacks that only materialize when something actually
+throws or calls `notFound()`. Their *position* in the wrapper stack, read
+from the RSC payload's `error`/`template` props on the internal layout
+router component (and confirmed by experiment C and the antipattern check),
+is: error.tsx wraps `loading.tsx`, `not-found.tsx`, `page.tsx`, and any
+nested `layout.tsx` — but it sits **inside** both `layout.tsx` and
+`template.tsx` in its own segment, never wrapping either. So the full nest,
+outside to inside, is: `layout` → `template` → (invisible error boundary) →
+`loading`'s Suspense → `page`/`not-found`.
+
+**Correction to the prompt's premise, stated plainly:** the bundled
+`next@16.3.0` docs (`01-app/01-getting-started/02-project-structure.md`,
+"Component hierarchy") already publish this exact order as text, not just
+an image — `layout.js`, `template.js`, `error.js` (error boundary),
+`loading.js` (Suspense boundary), `not-found.js` (error boundary), then
+`page.js` or nested `layout.js` — and states plainly that each is nested
+**inside** the previous. The rendered measurement above **confirms this
+documented order rather than contradicting it**: this article's own
+"one connected wrapper stack" framing lines up with what next@16.3.0
+actually ships. What the doc's bullet list doesn't make obvious — and what
+required rendering to see — is *which of the six are real, always-present
+DOM wrappers versus invisible/conditional boundaries*: only `layout` and
+`template` emit a DOM node unconditionally. `loading` never emits a DOM
+node of its own either — it's the `fallback` prop of one Suspense boundary
+sitting inside `template`'s `children` slot, visible only while that
+boundary is pending. `error` and `not-found` are boundary components with
+zero rendered output in the successful path — they materialize only when
+something throws or `notFound()` is called, and even then only one of the
+two (plus `page`) can be showing at a time, because they're alternate
+outcomes of the same position in the tree, not stacked siblings. So the
+measured nest is real, and matches the docs — but "nested inside" reads
+differently once you know three of those six names are conditional
+fallbacks for the same slot rather than six DOM layers.
+
+## 2. /conventions/nested — inheritance
+
+  data-marker="layout"        (inherited from /conventions/layout.tsx)
+  data-marker="template"      (inherited from /conventions/template.tsx —
+                                YES, template.tsx applies to a child segment
+                                with no template.tsx of its own)
+  data-marker="nested-page"   (this segment's own page.tsx)
+
+No `data-marker="loading"` appears for `/conventions/nested` — not because
+loading.tsx failed to inherit, but because the inherited Suspense boundary
+resolved *before* it ever needed to show its fallback: `nested/page.tsx`
+has no dynamic API and nothing to defer, so the boundary from
+`/conventions/loading.tsx` completes synchronously. Confirmed by reading
+`.next/server/app/conventions/nested.html`: the boundary marker at that
+position is `<!--$-->` (already-resolved Suspense), not `<!--$?-->`
+(pending/showing-fallback) — the same marker `/conventions` itself gets
+once its own page resolves. The mechanism is present and inherited either
+way; only whether it's ever *visibly* exercised depends on the leaf page.
+
+## 3. Shell membership — .next/server/app/conventions.html
+
+Present in the shell (stripped to data-marker elements, in nesting order):
+
+  data-marker="layout"
+  data-marker="template"
+  data-marker="loading"
+
+Absent from the shell: `data-marker="page"`.
+
+**Confirmed as predicted.** The raw shell HTML contains
+`<div data-marker="template">...<!--$?--><template id="B:0"></template>
+<p data-marker="loading">loading</p><!--/$--></div>` — `<!--$?-->` is
+React's pending-Suspense marker, meaning the shell captured the *fallback*,
+not the page. `page.tsx` calls `connection()`, which defers its subtree past
+the point where static generation can include it, so the compiled static
+shell for `/conventions` stops at layout → template → loading's fallback.
+
+For contrast, `.next/server/app/conventions/nested.html` shows `<!--$-->`
+(resolved, not pending) at the equivalent position, because `nested/page.tsx`
+has no dynamic API — its shell **does** include the page content, wrapped in
+layout and template, with no loading fallback baked in (nothing to fall back
+from).
+
+## 4. Build table rows
+
+  Route (app)                    Revalidate  Expire
+  ...
+  ├ ◐ /conventions
+  ├ ○ /conventions/nested
+  ...
+
+  ○  (Static)             prerendered as static content
+  ◐  (Partial Prerender)  prerendered as static HTML with dynamic server-streamed content
+
+`/conventions` ships ◐ (Partial Prerender) — the `connection()` call in
+`page.tsx` is the only thing that makes it dynamic; layout/template/loading
+by themselves don't force this.
+
+`/conventions/nested` ships ○ (fully Static) — confirms that inheriting a
+parent's loading.tsx Suspense boundary does NOT by itself make a route a
+Partial Prerender. Only an actual dynamic API call inside the boundary does.
+
+`app/conventions/_private/note.md` produced **no route**. It does not
+appear anywhere in the build's route table (checked the full, unfiltered
+table, not just the conventions rows), confirming underscore-prefixed
+folders are excluded from routing entirely — the framework doesn't even
+list them as a skipped or ignored entry, they're invisible to the router.

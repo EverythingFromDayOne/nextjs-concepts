@@ -1,0 +1,44 @@
+# produced: 2026-08-14; next@16.3.0; command: remove 'use client' from app/conventions/error.tsx; pnpm --filter next-lab build
+
+build: FAIL (exit 1)
+build error (first line): Error: Turbopack build failed with 1 error:
+runtime: not applicable — build must pass before request-time behavior can be observed
+silent?: n/a — caught at build, with a clear, specific message naming the file and the fix
+
+full extract:
+  Creating an optimized production build ...
+
+> Build error occurred
+Error: Turbopack build failed with 1 error:
+./demos/next-lab/app/conventions/error.tsx:4:1
+Error: demos/next-lab/app/conventions/error.tsx must be a Client Component. Add the "use client" directive the top of the file to resolve this issue.
+    Learn more: https://nextjs.org/docs/app/api-reference/directives/use-client
+> 4 | export default function ConventionsError({
+  5 |   error,
+  6 |   reset,
+  7 | }: {
+  8 |   error: Error & { digest?: string }
+  9 |   reset: () => void
+ 10 | }) {
+ 11 |   return (
+ 12 |     <div data-marker="error">
+ 13 |       <p>error: {error.message}</p>
+ 14 |       <button onClick={reset}>reset</button>
+ 15 |     </div>
+ 16 |   )
+ 17 | }
+
+Ecmascript file had an error
+
+Finding: enforced, not merely conventional. This is not the generic
+"you used a client-only API in a Server Component" error (compare the
+`useState`/`onClick` probes in `enforcement-matrix.txt`) — it is a dedicated
+check that names `error.tsx` specifically and tells you the exact fix. The
+compiler evidently special-cases this file convention (it must recognize
+`error.tsx`/`error.js` by filename, since nothing about the function body
+itself — no hooks, no event handlers — would otherwise mark it as
+client-only) and rejects it outright if the directive is missing, rather
+than silently reclassifying it or letting it through and failing later at
+request time. Restored the directive immediately after this probe; the
+directive is required and back in place for every other experiment in this
+session.
