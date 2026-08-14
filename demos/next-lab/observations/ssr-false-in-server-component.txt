@@ -1,0 +1,43 @@
+# produced: 2026-08-14; next@16.3.0; command: create app/scratch-ssr-false-server/page.tsx
+# calling dynamic(() => import(...), { ssr: false }) directly in a Server Component
+# (no 'use client' file in between), then `pnpm build`. Route deleted after capture.
+
+RESULT: it does NOT build. `ssr: false` is rejected at build time (a Turbopack
+compile error, not a runtime throw) when it appears directly in a Server
+Component.
+
+Scratch source (deleted after this capture):
+
+  // app/scratch-ssr-false-server/page.tsx
+  import dynamic from 'next/dynamic'
+
+  const HeavyWidgetDirect = dynamic(
+    () => import('../client-only/heavy-widget').then((m) => m.HeavyWidget),
+    { ssr: false }
+  )
+
+  export default function ScratchSsrFalseServerPage() {
+    return (
+      <main>
+        <h1>Scratch — ssr:false in a Server Component</h1>
+        <HeavyWidgetDirect />
+      </main>
+    )
+  }
+
+Exact error, verbatim from `pnpm build`:
+
+> Build error occurred
+Error: Turbopack build failed with 1 error:
+./demos/next-lab/app/scratch-ssr-false-server/page.tsx:6:27
+Error: `ssr: false` is not allowed with `next/dynamic` in Server Components. Please move it into a Client Component.
+
+CONCLUSION: the article's §2 assumption is CONFIRMED, not corrected. `ssr: false`
+must live in a `'use client'` file — the `loader.tsx` indirection in
+`app/client-only/` is required, not ceremony. This also matches
+`node_modules/next/dist/docs/01-app/02-guides/lazy-loading.md`, which states
+the same restriction and gives the same wording ("ssr: false is not allowed
+with next/dynamic in Server Components. Please move it into a Client
+Component.") in its "Importing Server Components" section — the build error
+is not a Turbopack-specific message, it's the documented contract, and this
+capture confirms it fires at `next build` under Turbopack.

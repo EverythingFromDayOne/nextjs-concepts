@@ -1,0 +1,71 @@
+# produced: 2026-08-14; next@16.3.0; command: pnpm build (filter next-lab); read
+# .next/server/app/{client-only,sketchpad,catalog}.html and the Route (app) table
+# from the build output.
+#
+# LIMIT (state this every time this file is cited): this measures what the
+# Next.js build writes into the prerendered HTML file on disk. It says
+# nothing about what any search engine crawler executes, renders, or
+# indexes — that is not observable from a build artifact, and is not
+# claimed anywhere below.
+
+## 1. .next/server/app/client-only.html — trimmed to <main>…</main>
+
+<main><h1>Client-only rendering</h1><p>This paragraph is prerendered and will appear in the HTML.</p><!--$!--><template data-dgst="BAILOUT_TO_CLIENT_SIDE_RENDERING"></template><p>Loading widget…</p><!--/$--></main>
+
+- The heading and the static paragraph ARE in the HTML.
+- "Viewport is …px wide" is NOT in the HTML. In its place is the `loading`
+  fallback ("Loading widget…") wrapped in a `BAILOUT_TO_CLIENT_SIDE_RENDERING`
+  comment marker — the literal, on-disk evidence that `ssr: false` skipped
+  server rendering for that subtree rather than rendering it and hiding it.
+
+## 2. .next/server/app/sketchpad.html — trimmed to <main>…</main>
+
+<main><h1>Sketchpad</h1><p>Draw with a pointer. Strokes are counted locally.</p><div><canvas style="width:100%;height:300px;border:1px solid #ccc"></canvas><p>0<!-- --> strokes</p></div></main>
+
+- The `<h1>` and the prose ARE in the HTML, as expected.
+- CORRECTION to the article's working assumption: the `<canvas>` element
+  ITSELF IS in the HTML. `Sketchpad` is a plain `'use client'` component
+  (no `ssr: false`), so it is hydration-deferred, not never-server-rendered
+  — it renders on the server like any other component. What's missing is
+  not the tag but everything the component's effects and handlers produce:
+  no `width`/`height` attributes (set in a `useEffect` from
+  `devicePixelRatio`), and "0 strokes" rather than any drawn state, because
+  no pointer events have fired yet. This is the distinction the article
+  draws between hydration-deferred (content exists, starts empty) and
+  `ssr: false` (content does not exist, replaced by the `loading` fallback)
+  — sketchpad is the first kind, client-only/heavy-widget is the second.
+
+## 3. Route (app) build-table rows for both routes (with surrounding context)
+
+Route (app)                    Revalidate  Expire
+├ ◐ /basic                             1h      1d
+├ ○ /catalog                           1h      1d
+├ ○ /client-only
+├ ◐ /dashboard                         1m      1h
+...
+├ ○ /sketchpad
+├ ◐ /streaming                         1h      1d
+
+○  (Static)             prerendered as static content
+
+Both routes are plain `○ Static` — nothing about pushing a component to the
+client aborted or downgraded the route's prerender. `ssr: false` and a
+hydration-deferred client component both still allow the *page* to be
+fully static; the cost lands on that one component's HTML, not the route's
+build classification.
+
+## 4. .next/server/app/catalog.html — for contrast
+
+- Contrary to the other two routes, catalog.html has NO `<main>` element at
+  all — `app/catalog/page.tsx` returns a bare `<Suspense>` with no wrapping
+  landmark, so there is nothing to trim to. Recorded as found rather than
+  forcing a `<main>` comparison that doesn't exist.
+- What IS in the body, fully resolved (catalog is `○ Static`, not
+  streaming a fallback in this build): the filter `<input>` and a `<ul>`
+  with all four real products and prices —
+  `<input placeholder="Filter…" value=""/><ul><li>Aeron Chair — $1,495.00</li>...`
+- The contrast that matters: catalog's static shell contains actual data
+  (a fully resolved Server Component fetch), while client-only's static
+  shell contains a placeholder standing in for a component that has no
+  server-rendered form at all. Both are `○ Static` builds; the shells they
+  produce are not interchangeable in what a non-executing client receives.
