@@ -103,6 +103,8 @@ Defer the identical throw behind `connection()` inside an explicit `<Suspense>`,
 
 So the precise version of this finding isn't "`error.tsx` catches a build-time throw" — it's that `error.tsx` has nothing to do at build time, in either direction. Whether a throw fails the build or waits for a real request is decided entirely by whether the code reaching it is deferred behind a dynamic API inside a `<Suspense>` boundary, exactly the same rule that already governs every other check in this model. The same deferral test on a **layout's own throw** (rather than a page's) confirms the antipattern below by the same mechanism: a layout authors its JSX around `{children}`, which is exactly the part of the tree its own `error.tsx` is wired to protect — so the layout's own throw never reaches that boundary, deferred or not.
 
+**Stated plainly, since it's easy to read the above as a nuance rather than a rule: `error.tsx` is a request-time recovery mechanism, full stop. It never rescues a failing build.** A build that fails, fails — with or without an `error.tsx` anywhere above the throw. The only thing an error boundary can ever do is replace a *pending* fallback with its own UI after a request resumes a deferred render; it cannot reach back and turn a build failure into a shipped artifact, because by the time the build has failed there is no render left for it to attach to.
+
 ### `layout` persists, `template` remounts
 
 Both wrap `children`. The difference is what happens on navigation within the segment.
@@ -266,6 +268,7 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 8, 20.
 - `loading.tsx` is one `<Suspense>` boundary at the segment root, so its fallback lands in the shell like any other.
 - `error.tsx` must be a Client Component, and it **cannot catch its own segment's layout**.
 - Error boundaries follow the same rule as everything else: enforcement follows execution, so *when* a server throw is caught depends on whether the subtree prerenders.
+- **`error.tsx` is request-time recovery only — it never rescues a failing build.** A build-time throw is a hard failure regardless of what boundaries sit above it; only a throw deferred behind a dynamic API inside `<Suspense>` ever reaches an error boundary at all.
 - `layout` persists across navigation; `template` remounts. With `<Activity>`, deliberate remounts are now rarer and more significant.
 - Conventions placed high inherit downward, which makes root-level placement the highest-leverage decision in the tree.
 
