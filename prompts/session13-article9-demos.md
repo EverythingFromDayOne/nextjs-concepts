@@ -109,7 +109,7 @@ Verify each still carries an accurate `// fails:` line against current measureme
 
 ## 6. Template
 
-`prompts/session13/use-cache-directive.md.tpl` ships with this. Placeholders:
+`prompts/use-cache-directive.md.tpl` ships with this. Placeholders:
 
 - `{KEY_COMPOSITION_RESULT}` — experiment A
 - `{BUILD_ID_RESULT}` — experiment B, including which method distinguished cold cache from counter reset
