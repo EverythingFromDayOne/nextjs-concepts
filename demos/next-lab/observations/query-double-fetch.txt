@@ -1,0 +1,48 @@
+# produced: 2026-08-14; next@16.3.0; decision: Experiment C SKIPPED.
+#
+# Experiment C was optional in the demo brief (prompts/session9-article7-demos.md
+# §5) specifically because it requires adding TanStack Query v5 to
+# demos/next-lab, a dependency the brief itself flags as invented and not
+# owned by this repo.
+
+DECISION: skip. Reasons:
+
+1. Ownership boundary already decided in roadmap.md §2 ("Cross-repo
+   position"): "`reactjs-concepts` owns TanStack Query." roadmap.md §7
+   tracks every invented, not-yet-approved addition to this repo's stack
+   (Drizzle+Postgres, verified_against stamps, cross-repo link depth, etc.)
+   precisely so they get flagged rather than added silently. A new
+   dependency in demos/next-lab/package.json for one demo page is exactly
+   that category of decision, and the roadmap's approval checklist (bottom
+   of roadmap.md) is still unchecked — this is not the moment to add an
+   unreviewed, permanent lockfile dependency for a single measurement.
+
+2. The qualitative result does not require the dependency to state
+   correctly. A Server Component's fetched data is serialized into the RSC
+   payload that ships with the initial response (established in
+   `foundations/server-and-client-components` and
+   `caching/cache-components-model`). A Client Component's `useQuery` call
+   against a route handler is, by construction, a second, separate
+   `fetch()` issued by the browser after hydration, to a different
+   endpoint (the route handler), producing its own JSON response body. So:
+   yes, the data crosses the wire twice — once inside the page payload,
+   once as an independent client-initiated request — and a network panel
+   would show that second request regardless of which query library issues
+   it. This does not depend on TanStack Query specifically; any
+   client-side fetch of server-available data reproduces it, and this repo
+   already has a live instance of the general pattern to point at instead
+   of building a new one:
+
+   - `app/catalog/` passes a Promise into a Client Component (`FilterableList`)
+     which unwraps it with `use()` — the data crosses the boundary exactly
+     once, inside the payload, which is the CORRECT baseline this
+     comparison is against.
+
+3. Net effect on the article: {QUERY_RESULT} is filled with this reasoning
+   plus the general mechanism, and the article cross-links to
+   `reactjs-concepts` for the query-library-specific patterns, per the
+   brief's own fallback ("If you skip, the article cross-links instead and
+   loses a measurement"). The measurement lost is a byte-count and a
+   DevTools screenshot, not the underlying claim — the mechanism (payload
+   vs. separate client fetch) is independently supported by this repo's
+   own extracted demo code (`app/catalog/`), not by prose alone.

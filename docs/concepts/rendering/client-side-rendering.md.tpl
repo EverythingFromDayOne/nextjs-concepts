@@ -9,7 +9,7 @@ related:
   - performance/the-client-bundle
 next_baseline: "16.3"
 verified_against: next@16.3.0
-verified_on: 2026-08-11
+verified_on: 2026-08-14
 status: draft
 ---
 
@@ -60,7 +60,13 @@ The second is heavier and is the right tool only when the component genuinely *c
 
 {EXTRACT:demos/next-lab/app/client-only/loader.tsx}
 
-{SSR_FALSE_IN_SERVER}
+**Measured, not assumed.** Calling `dynamic(() => import(...), { ssr: false })` directly in a Server Component — no `'use client'` file in between — was tried as a scratch route and removed once the result was captured (`observations/ssr-false-in-server-component.txt`). It does not build:
+
+```
+Error: `ssr: false` is not allowed with `next/dynamic` in Server Components. Please move it into a Client Component.
+```
+
+That's a Turbopack compile error at `next build`, not a runtime throw, and it matches `node_modules/next/dist/docs/01-app/02-guides/lazy-loading.md` word for word. The §2 indirection is confirmed, not corrected: `loader.tsx` exists because there is nowhere else for `ssr: false` to legally go.
 
 ### The null first render is a contract, not a workaround
 
@@ -72,17 +78,23 @@ That is why the pattern looks the way it does, and why `typeof window === 'undef
 
 The SEO argument around CSR is mostly folklore in both directions. What can be measured is what the server writes:
 
-{SHELL_COMPARISON}
+**Provenance and limit:** produced 2026-08-14 against `next@16.3.0` by running `pnpm build` and reading `.next/server/app/<route>.html` directly (`observations/client-only-shell.txt`) — never a response body, per this repo's measurement standard, since a streamed response contains both the fallback and the resolved content. **This measures what the build writes into the HTML file. It says nothing about what any crawler executes, renders, or indexes** — that is not observable from a build artifact, and nothing below claims it.
 
-Read that carefully for what it does and doesn't establish. It shows **what is in the prerendered HTML**. It says nothing about what any particular crawler executes, renders, or indexes — that is not measurable from here, and this article does not claim it.
+| Route | Build classification | What's inside `<main>`…`</main>` |
+| --- | --- | --- |
+| `/client-only` | `○ Static` | The heading and the static paragraph. In place of the widget: `<!--$!--><template data-dgst="BAILOUT_TO_CLIENT_SIDE_RENDERING"></template><p>Loading widget…</p>` — the `loading` fallback, wrapped in the literal bailout marker Next writes when `ssr: false` skips rendering. |
+| `/sketchpad` | `○ Static` | The heading, the prose, **and the `<canvas>` element itself**: `<canvas style="width:100%;height:300px;border:1px solid #ccc"></canvas>`, with no `width`/`height` (set by a `useEffect`) and "0 strokes" (no pointer event has fired yet). The tag is there; the drawing isn't. |
+| `/catalog` (contrast) | `○ Static` | No `<main>` at all — the page returns a bare `<Suspense>`, not a landmark, so there's nothing to trim to. What's there instead is fully resolved: `<input placeholder="Filter…" .../><ul><li>Aeron Chair — $1,495.00</li>…</ul>` — real product data, not a fallback, because this route's Server Component fetch had already resolved when the shell was written. |
 
 What follows from the measurement alone is narrower and still useful: content that isn't in the HTML depends on a client executing your bundle successfully. That's a real dependency with real failure modes — bundle errors, slow devices, anything that reads HTML without running JavaScript — and it is a cost you should choose deliberately rather than inherit.
 
-Note the asymmetry in the sketchpad row. The prose and heading are there; the canvas is not. **Pushing one component to the client costs you that component's HTML, not the page's.**
+**Correction to the working assumption going in:** the asymmetry isn't prose-versus-canvas — the `<canvas>` tag is measurably present. It's hydration-deferred-versus-`ssr: false`. Sketchpad's tag renders empty because a plain `'use client'` component still server-renders; the client-only widget's output doesn't render *at all* because `ssr: false` skipped that step, and the fallback stands in instead. **The cost of `ssr: false` is that component's entire HTML. The cost of a hydration-deferred component is only its content — the element itself still ships.**
 
 ### Client fetching alongside Server Components
 
-{QUERY_RESULT}
+**Experiment C was skipped** (`observations/query-double-fetch.txt`). Measuring it properly means adding TanStack Query to `demos/next-lab` for one demo page — a dependency this repo's own roadmap already assigns elsewhere ("`reactjs-concepts` owns TanStack Query," `roadmap.md` §2), and flags as exactly the kind of invented, not-yet-approved addition its §7 list exists to catch before it lands silently.
+
+The mechanism doesn't need the dependency to state correctly, because this repo already has the correct baseline to contrast against. `app/catalog/` passes a fetch `Promise` into a Client Component that unwraps it with `use()` — the data crosses the server/client boundary exactly once, serialized into the RSC payload that ships with the page. A Client Component that instead called `useQuery` (or any client fetch) against a route handler for data a Server Component already fetched would issue a second, independent `fetch()` after hydration, to a different endpoint, returning its own JSON body. The data crosses the wire twice — once inside the payload, once as a fresh request — regardless of which client library makes that second call. A DevTools network panel would show a request for data the page already had.
 
 The design question underneath: a client fetching library and Server Components solve overlapping problems. Server Components answer "get this data before first paint." A query library answers "keep this data fresh while the user watches it, and let them refetch."
 
@@ -136,8 +148,8 @@ A theme preview that reads `window.matchMedia` during render *cannot* server-ren
 pnpm build && pnpm start
 ```
 
-1. Read `.next/server/app/sketchpad.html`. Heading and prose present; canvas not.
-2. Read `.next/server/app/client-only.html`. The `loading` fallback is there; the widget's output is not.
+1. Read `.next/server/app/sketchpad.html`. Heading and prose present; the `<canvas>` tag is present too, empty — no drawn strokes, no `width`/`height`.
+2. Read `.next/server/app/client-only.html`. The `loading` fallback is there; the widget's output is not there at all.
 3. Compare both against `.next/server/app/catalog.html`.
 4. Disable JavaScript and load all three. What remains is what a non-executing client gets — the same content the HTML files showed.
 
@@ -262,4 +274,4 @@ The counter-case: most products that *feel* like this still have marketing pages
 
 `demos/next-lab/app/sketchpad/`, `demos/next-lab/app/client-only/`, `demos/next-lab/antipatterns/client-page-for-static-content.tsx`, and the capture files in `demos/next-lab/observations/`.
 
-> **Verification status.** Verified against `next@16.3.0`. **This article closes a gap in the repository's own model:** articles 1 and 6 assert four answers and only three had owning articles. Three items are measured in this session: what lands in the prerendered HTML for a client-only route versus a mixed one; whether `ssr: false` is legal directly in a Server Component (the surrounding prose was written expecting it is not, and is corrected if the measurement disagrees); and whether client-side fetching duplicates data already in the payload — the last of which may be recorded as deliberately skipped rather than measured. The SEO discussion is **deliberately bounded to what the HTML contains**; crawler behaviour is not measurable here and is not asserted.
+> **Verification status.** Verified against `next@16.3.0`. **This article closes a gap in the repository's own model:** articles 1 and 6 assert four answers and only three had owning articles. All three measurements planned for this session are resolved: (1) what lands in the prerendered HTML for `/client-only`, `/sketchpad`, and (for contrast) `/catalog` — `observations/client-only-shell.txt`, and it corrected a working assumption in the process (the sketchpad row's `<canvas>` tag is measurably present, empty, not absent — the real asymmetry is hydration-deferred vs. `ssr: false`, not prose vs. canvas); (2) `ssr: false` directly in a Server Component does not build — a Turbopack compile error, confirming rather than correcting the §2 assumption — `observations/ssr-false-in-server-component.txt`; (3) Experiment C (client-fetch duplicating payload data) was deliberately skipped rather than run, because it requires adding TanStack Query — a dependency `roadmap.md` §2 already assigns to `reactjs-concepts` and §7 exists to flag before it lands unreviewed — `observations/query-double-fetch.txt` records the mechanism via the repo's existing `app/catalog/` baseline instead. The SEO discussion is **deliberately bounded to what the HTML contains**; crawler behaviour is not measurable here and is not asserted.
