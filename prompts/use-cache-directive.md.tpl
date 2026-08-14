@@ -92,6 +92,12 @@ async function CachedFrame({ children }: { children: React.ReactNode }) {
 
 The frame is cached; the children are whatever the caller rendered. That's what makes it safe to wrap uncached, per-request content in a cached shell — and it's the mechanism [`composition-and-cache-boundaries`](./composition-and-cache-boundaries.md) is built on.
 
+### A Server Action's render does not populate the cache
+
+When a Server Action returns and Next.js re-renders the page for that response, cached functions called during that render execute for real — and their results are not stored. The next reader gets a miss, or the pre-existing entry, depending on how the tag was invalidated.
+
+This explains a class of "why is it still recomputing" confusion after a mutation: the work you watched happen was throwaway. Measured with an instrumented compute counter on `getPlans()` (incremented on every real execution, carried through the cached return so a hit replays the miss's count): under both `updateTag` and `revalidateTag`, the action's own re-render bumped the counter — a real, uncached miss — and that computation was never reused by the request that followed. See [`tags-and-invalidation`](./tags-and-invalidation.md) for the two invalidation paths and what each next reader gets instead.
+
 ### Cache the access, not the route
 
 The commonest overreach is putting the directive at the top of a page:
@@ -242,6 +248,7 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 2, 5, 6.
 - Cached functions must be async, because the directive marks a suspension point.
 - Entries are build-ID-keyed and in-memory by default, so a deploy starts cold.
 - `children` passes *through* a cached component uncached.
+- A Server Action's re-render is a real computation that is never stored — the next reader gets a miss or the pre-existing entry, never the writer's render.
 - Cache the data access, not the route. Always call `cacheLife`. Tag entities, not pages.
 
 ---
@@ -270,4 +277,4 @@ Cite: [`docs/evolution-ledger.md`](../../evolution-ledger.md) rows 2, 5, 6.
 
 `demos/next-lab/lib/catalog.ts`, `lib/billing.ts`, `lib/inventory.ts`, `lib/billing-leak-b.ts`, `lib/key-probe.ts`, the three files in `demos/next-lab/antipatterns/` named above, and the capture files in `demos/next-lab/observations/`.
 
-> **Verification status.** Verified against `next@16.3.0`. **Three claims this article makes were shipped in earlier articles and never measured until this session**: whether argument order affects the key (asserted in a `lib/catalog.ts` comment written in session 3 and extracted into article 1); whether the build ID is genuinely in the key such that entries do not survive a deploy (asserted in articles 1 and 6); and whether all three directive positions work as described, including a file-level export called directly from a Client Component. Any of the three coming back differently corrects an earlier article, not just this one. Every code block is extracted.
+> **Verification status.** Verified against `next@16.3.0`. **Three claims this article makes were shipped in earlier articles and never measured until this session**: whether argument order affects the key (asserted in a `lib/catalog.ts` comment written in session 3 and extracted into article 1); whether the build ID is genuinely in the key such that entries do not survive a deploy (asserted in articles 1 and 6); and whether all three directive positions work as described, including a file-level export called directly from a Client Component. Any of the three coming back differently corrects an earlier article, not just this one. **Added in a later correction pass, not part of this session's original plan:** the "Server Action's render does not populate the cache" property above was discovered while investigating article 11's tag-invalidation behavior, not predicted going in. An instrumented compute counter on a cached function is what settled it — timing evidence alone couldn't distinguish a stored hit from a coincidentally-fast recompute. Every code block is extracted.
