@@ -245,7 +245,7 @@ The counter-case: most products that *feel* like this still have marketing pages
 - Two mechanisms: **hydration-deferred** keeps the surrounding HTML; **`ssr: false`** skips server rendering entirely and costs the component's HTML.
 - The null first render is a hydration contract, not a workaround.
 - What can be measured is **what is in the prerendered HTML**. Crawler behaviour cannot be measured from here and this article doesn't claim it.
-- Pushing one component to the client costs that component's HTML — not the page's.
+- Pushing one component to the client costs that component's output, not the page's — and *how much* depends on the mechanism: hydration-deferred still ships the tag, empty; `ssr: false` ships none of it.
 - Query libraries earn their place on **freshness**, not first paint.
 - The unit of the decision is a **boundary**. An app-wide CSR-versus-SSR answer is the retired taxonomy talking.
 
