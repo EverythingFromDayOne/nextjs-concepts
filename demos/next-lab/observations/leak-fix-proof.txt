@@ -1,0 +1,21 @@
+# produced: 2026-08-13; next@16.3.0; command: next build; next start; curl -H 'Cookie: uid=...' /leak-b and /leak-fixed; grep data-uid
+# broken — /leak-b — expect the same data twice
+curl -H 'Cookie: uid=user-alice' /leak-b  ->  data-uid="user-alice"
+curl -H 'Cookie: uid=user-bob'   /leak-b  ->  data-uid="user-alice"
+
+# fixed — /leak-fixed — expect different data
+curl -H 'Cookie: uid=user-alice' /leak-fixed  ->  data-uid="user-alice"
+curl -H 'Cookie: uid=user-bob'   /leak-fixed  ->  data-uid="user-bob"
+
+# build-table shape — does the fix cost anything structurally?
+route table lines mentioning /leak-* (from the same `pnpm build` above):
+Route (app)                    Revalidate  Expire
+├ ◐ /leak-a
+├ ◐ /leak-b
+├ ◐ /leak-c
+├ ◐ /leak-fixed
+├ ◐ /leak-private
+/leak-b and /leak-fixed both show the same annotation (◐ Partial Prerender), same as /leak-a and /leak-c.
+Neither carries a Revalidate/Expire pair in the table — every entry on these routes is per-request,
+so nothing survives long enough to appear in the build-time prerender pass that populates those columns.
+The fix is a pure keying change; it does not alter the route’s prerender shape.

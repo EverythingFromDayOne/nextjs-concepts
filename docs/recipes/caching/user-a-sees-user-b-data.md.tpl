@@ -2,9 +2,9 @@
 recipe_id: user-a-sees-user-b-data
 primary_concept: caching/use-cache-directive
 difficulty: intermediate
-next_baseline: "16.3"
+next_baseline: "16.3.0"
 verified_against: next@16.3.0
-verified_on: 2026-08-11
+verified_on: 2026-08-13
 status: draft
 ---
 
@@ -32,7 +32,7 @@ Nothing errored. Both requests returned `200`. The page rendered correctly — w
 
 The measured reproduction, two requests with different session cookies:
 
-{FIX_PROOF}
+{EXTRACT:demos/next-lab/observations/leak-fix-proof.txt}
 
 Read the top half of that capture: two different users, identical `data-uid`. The bottom half is the same page after the fix.
 
@@ -55,8 +55,6 @@ Four reasons, and the fourth is the one that makes this dangerous rather than me
 **No error, no log line, no status code.** The response is a well-formed `200`. Nothing in your monitoring distinguishes a leak from a correct render.
 
 **The framework catches the obvious version, which teaches you the wrong lesson.** Reading `cookies()` directly inside a cached scope is rejected. Having seen that guard fire once, it's natural to conclude the whole class is covered. It isn't — and the two forms that *do* leak are the ones the guard cannot see.
-
-{DETECTION_RESULT}
 
 ---
 
@@ -140,7 +138,17 @@ Different values, or you still have it. Run it against a **production build** �
 
 **`'use cache: remote'`.** Same key rules, durable storage. A leak that would have vanished on redeploy now persists across instances and deploys.
 
-{PRIVATE_CACHE_RESULT}
+---
+
+## What doesn't work
+
+**Can `'use cache: private'` just replace all of this?** It's the obvious next question, and it's experimental. Measured against `app/leak-private` + `lib/billing-private.ts`, all four questions the experimental status raises:
+
+{EXTRACT:demos/next-lab/observations/private-cache-probe.txt#L2-L21}
+
+**Nothing in the tooling can tell you this happened, either.** `next build`'s route table and `next dev`'s server log were compared directly between a leaking route and its fix — measured, not assumed:
+
+{EXTRACT:demos/next-lab/observations/private-cache-probe.txt#L23-L36}
 
 ---
 
@@ -209,6 +217,6 @@ And if the shape you actually want is "same for everyone, computed once," the fi
 
 ## Demo source
 
-`demos/next-lab/lib/billing-leak-{a,b,c}.ts`, `demos/next-lab/lib/billing.ts`, `demos/next-lab/lib/authz.ts`, `demos/next-lab/app/leak-{a,b,c}/`, `demos/next-lab/app/leak-fixed/`, and the capture files in `demos/next-lab/observations/`.
+`demos/next-lab/lib/billing-leak-{a,b,c}.ts`, `demos/next-lab/lib/billing.ts`, `demos/next-lab/lib/authz.ts`, `demos/next-lab/lib/billing-private.ts`, `demos/next-lab/app/leak-{a,b,c}/`, `demos/next-lab/app/leak-fixed/`, `demos/next-lab/app/leak-private/`, and the capture files in `demos/next-lab/observations/`.
 
 > **Verification status.** Verified against `next@16.3.0`. All three vectors were measured in session 7, not reasoned from documentation — and the measurement **corrected this recipe's original premise**, which assumed the naive `cookies()`-in-cache form leaked silently. It does not; it is rejected. The two forms that do leak evade the guard by different means, and that distinction is now the recipe's spine. The phase-dependence of the caught form was measured separately. Whether `'use cache: private'` is a viable alternative, and whether anything in the tooling can detect this class at all, are measured in this session — including the possibility that the detection answer is *nothing*. Every code block and capture is extracted.
