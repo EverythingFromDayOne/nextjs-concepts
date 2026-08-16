@@ -1,5 +1,6 @@
 ---
 article_id: tags-and-invalidation
+description: "Next 16 split invalidation in two: updateTag buys correctness with latency, revalidateTag buys latency with staleness"
 concept_folder: caching
 wave: 2
 related:

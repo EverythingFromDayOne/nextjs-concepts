@@ -1,5 +1,6 @@
 ---
 article_id: build-time-request-time-and-the-client
+description: Your code runs at one of three moments, and whether guessing wrong suspends or throws depends on whether the value can wait
 concept_folder: foundations
 wave: 1
 related:

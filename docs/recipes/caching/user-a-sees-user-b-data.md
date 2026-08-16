@@ -1,5 +1,6 @@
 ---
 recipe_id: user-a-sees-user-b-data
+description: A cached scope keys on its arguments and not the request, so two of the three ways to leak another user's data go uncaught
 primary_concept: caching/use-cache-directive
 difficulty: intermediate
 next_baseline: "16.3.0"

@@ -1,5 +1,6 @@
 ---
 article_id: file-conventions-and-the-route-tree
+description: The file conventions are a fixed wrapper stack, and each wrapper has a different relationship to the two rendering passes
 concept_folder: foundations
 wave: 1
 related:
