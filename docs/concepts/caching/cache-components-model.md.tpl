@@ -1,5 +1,6 @@
 ---
 article_id: cache-components-model
+description: Next 16 caches nothing unless you opt in, and that inversion is why most existing Next.js advice is now actively wrong
 concept_folder: caching
 wave: 1
 related:

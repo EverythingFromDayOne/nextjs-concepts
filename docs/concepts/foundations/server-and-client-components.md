@@ -1,5 +1,6 @@
 ---
 article_id: server-and-client-components
+description: The use client directive marks an entry point into the client module graph, spreading through import and never through JSX
 concept_folder: foundations
 wave: 1
 related:

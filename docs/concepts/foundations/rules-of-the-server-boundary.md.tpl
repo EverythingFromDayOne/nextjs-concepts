@@ -1,5 +1,6 @@
 ---
 article_id: rules-of-the-server-boundary
+description: Four scopes forbid different things, and the rules are enforced unevenly — one violation fails silently into a plausible value
 concept_folder: foundations
 wave: 1
 related:

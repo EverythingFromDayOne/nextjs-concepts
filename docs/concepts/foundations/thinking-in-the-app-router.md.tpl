@@ -1,5 +1,6 @@
 ---
 article_id: thinking-in-the-app-router
+description: A route is not static or dynamic but a static shell with holes, and every piece of data answers one of four questions
 concept_folder: foundations
 wave: 1
 related:

@@ -1,5 +1,6 @@
 ---
 article_id: static-shell-and-streaming
+description: A Suspense boundary is the seam between two rendering passes, so its placement decides what exists before the request arrives
 concept_folder: rendering
 wave: 1
 related:

@@ -1,5 +1,6 @@
 ---
 article_id: client-side-rendering
+description: Client-side rendering is a legitimate fourth answer, and the mistake is choosing it for a page rather than for a boundary
 concept_folder: rendering
 wave: 1
 related:
