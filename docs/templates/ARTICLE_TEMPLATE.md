@@ -1,5 +1,6 @@
 ---
 article_id: "{ARTICLE_ID}"
+description: "{PLACEHOLDER — one sentence, 90–160 characters, sentence case, no trailing period unless two clauses; states what the article establishes rather than its topic}"
 concept_folder: "{CONCEPT_FOLDER}"
 wave: "{WAVE}"
 related: []

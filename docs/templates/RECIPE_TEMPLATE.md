@@ -1,5 +1,6 @@
 ---
 recipe_id: "{RECIPE_ID}"
+description: "{PLACEHOLDER — one sentence, 90–160 characters, sentence case, no trailing period unless two clauses; states what the article establishes rather than its topic}"
 primary_concept: "{PRIMARY_CONCEPT}"
 difficulty: foundational
 next_baseline: "16.3.0"

@@ -191,7 +191,7 @@ Individual recipes, listed as they get specified — `recipes/<track>/<slug>`, m
 
 ### Article template
 
-Frontmatter: `article_id` (filename slug, **never numeric**), `concept_folder`, `wave`, `related`, `next_baseline`, `verified_against`, `verified_on`, `status`.
+Frontmatter: `article_id` (filename slug, **never numeric**), `description`, `concept_folder`, `wave`, `related`, `next_baseline`, `verified_against`, `verified_on`, `status`.
 
 Sections, in order:
 
